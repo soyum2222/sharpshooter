@@ -30,6 +30,7 @@ func Dial(addr *net.UDPAddr, timeout time.Time) (*Sniper, error) {
 }
 
 func License(addr *net.UDPAddr) (*headquarters, error) {
+
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return nil, err
@@ -172,7 +173,6 @@ func (h *headquarters) Monitor() {
 			loop:
 				sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
-				//h.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 				select {
 
 				case <-ticker.C:
@@ -194,7 +194,6 @@ func (h *headquarters) Monitor() {
 			}
 
 			sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
-			//h.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
 		case protocol.THIRDHANDSHACK:
 

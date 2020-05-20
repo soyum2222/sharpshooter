@@ -212,6 +212,7 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 
 	if ammo.Id < s.beShotCurrentId {
 		fmt.Println("ammo.Id < s.beShotCurrentId", ammo.Id)
+		s.ack(ammo.Id)
 		return
 	}
 

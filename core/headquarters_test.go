@@ -24,35 +24,18 @@ func TestShoot(t *testing.T) {
 		println(err)
 
 	}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10000; i++ {
 		_, err := conn.Write([]byte("hello" + strconv.Itoa(i)))
 		if err != nil {
 			panic(err)
 		}
 	}
-	time.Sleep(time.Hour)
+	//time.Sleep(time.Hour)
 
 }
 
 func TestReceive(t *testing.T) {
 
-	//conn, err := net.ListenUDP("udp", &net.UDPAddr{
-	//	IP:   nil,
-	//	Port: 8890,
-	//	Zone: "",
-	//})
-	//
-	//if err != nil {
-	//	panic(err)
-	//}
-	//
-	//h := headquarters{
-	//	conn:      conn,
-	//	Snipers:   map[string]*Sniper{},
-	//	blocksign: make(chan struct{}, 0),
-	//}
-	//
-	//go h.Monitor()
 	go http.ListenAndServe(":9999", nil)
 
 	addr := &net.UDPAddr{
@@ -197,32 +180,16 @@ func TestSched(t *testing.T) {
 
 }
 
-//func TestRand(t *testing.T) {
-//
-//	rand.Seed(time.Now().UnixNano())
-//	for i:=0 ;i < 5000000 ; i++ {
-//		nums := []int{}
-//		find := func(num int)bool {
-//			for _ , v := range nums{
-//				if v == num {
-//					return true
-//				}
-//			}
-//			return false
-//		}
-//		for i:= 0 ; i < 6 ; i++{
-//			for {
-//				redNum := rand.Intn(33) + 1
-//				if find(redNum) {
-//					continue
-//				}
-//				nums = append(nums,redNum)
-//				break
-//			}
-//		}
-//		blueNum := rand.Intn(16)
-//		nums = append(nums,blueNum +1)
-//
-//		log.Println(nums)
-//	}
-//}
+func TestRand(t *testing.T) {
+
+	conn, err := net.Dial("tcp", "118.25.218.132:1180")
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i < 10000; i++ {
+
+		conn.Write([]byte(strconv.Itoa(i)))
+	}
+
+}
