@@ -55,7 +55,9 @@ func NewHeadquarters() *headquarters {
 }
 
 func (h *headquarters) Accept() *Sniper {
-	return <-h.accept
+	sn := <-h.accept
+	go sn.ackSender()
+	return sn
 }
 
 func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
@@ -133,6 +135,8 @@ loop:
 
 	h.Snipers[addr.String()] = sn
 
+	go sn.ackSender()
+
 	return nil
 }
 
@@ -152,6 +156,7 @@ func (h *headquarters) Monitor() {
 		switch msg.Kind {
 
 		case protocol.ACK:
+
 			h.Snipers[remote.String()].score(msg.Id)
 
 		case protocol.FIRSTHANDSHACK:
@@ -200,6 +205,10 @@ func (h *headquarters) Monitor() {
 			sn := h.Snipers[remote.String()]
 
 			sn.timeout = time.Now().UnixNano() - sn.timeout
+
+			if sn.timeout == 0 {
+				sn.timeout = int64(time.Second)
+			}
 
 			sn.handshakesign <- struct{}{}
 

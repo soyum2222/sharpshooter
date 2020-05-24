@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"sync/atomic"
+)
 
 const (
 	ACK = iota
@@ -10,10 +13,15 @@ const (
 )
 
 type Ammo struct {
-	Length uint32
-	Id     uint32
-	Kind   uint16
-	Body   []byte
+	Length   uint32
+	Id       uint32
+	Kind     uint16
+	Body     []byte
+	ackCount uint32
+}
+
+func (a *Ammo) AckAdd() uint32 {
+	return atomic.AddUint32(&a.ackCount, 1)
 }
 
 func Unmarshal(b []byte) Ammo {

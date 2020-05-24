@@ -34,21 +34,25 @@ type Sniper struct {
 	timeoutticker        *time.Ticker
 	mu                   sync.RWMutex
 	bemu                 sync.Mutex
+	ackpool              map[uint32]struct{}
+	ackmu                sync.Mutex
+	acksign              chan struct{}
 }
 
 func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
-
 	return &Sniper{
 		aim:           aim,
 		conn:          conn,
 		timeout:       timeout,
-		beShotAmmoBag: make([]*protocol.Ammo, 10),
+		beShotAmmoBag: make([]*protocol.Ammo, 100),
 		handshakesign: make(chan struct{}, 1),
 		readblock:     make(chan struct{}, 0),
 		maxAmmoBag:    100,
 		maxWindows:    100,
 		mu:            sync.RWMutex{},
 		bemu:          sync.Mutex{},
+		ackpool:       map[uint32]struct{}{},
+		acksign:       make(chan struct{}, 0),
 	}
 
 }
@@ -76,7 +80,7 @@ loop:
 func (s *Sniper) Shot() {
 
 	if s.timeout == 0 {
-		s.timeout = int64(time.Second)
+		s.timeout = int64(time.Second * 10)
 	}
 	s.timeoutticker = time.NewTicker(time.Duration(s.timeout) * time.Nanosecond)
 
@@ -137,6 +141,7 @@ loop:
 				break
 			}
 		}
+
 		goto loop
 	}
 
@@ -144,22 +149,51 @@ loop:
 
 func (s *Sniper) ack(id uint32) {
 
-	ammo := protocol.Ammo{
-		Id:   id,
-		Kind: protocol.ACK,
-		Body: nil,
+	s.ackmu.Lock()
+	defer s.ackmu.Unlock()
+	s.ackpool[id] = struct{}{}
+
+	select {
+	case s.acksign <- struct{}{}:
+	default:
 	}
 
-	_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
+}
 
-	if err != nil {
-		panic(err)
+func (s *Sniper) ackSender() {
+
+	timer := time.NewTimer(time.Duration(s.timeout) / 10 * time.Nanosecond)
+	for {
+
+		if len(s.ackpool) == 0 {
+			<-s.acksign
+		}
+		s.ackmu.Lock()
+		for k, _ := range s.ackpool {
+
+			ammo := protocol.Ammo{
+				Id:   k,
+				Kind: protocol.ACK,
+				Body: nil,
+			}
+			_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
+			if err != nil {
+				panic(err)
+			}
+			delete(s.ackpool, k)
+		}
+		s.ackmu.Unlock()
+
+		<-timer.C
+		timer.Reset(time.Duration(s.timeout) / 10 * time.Nanosecond)
+
 	}
 }
 
 func (s *Sniper) score(id uint32) {
 
 	fmt.Println("id", id)
+
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
 		return
 	}
@@ -173,34 +207,29 @@ func (s *Sniper) score(id uint32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ammoBag[index] = nil
-
-	if id == atomic.LoadUint32(&s.currentWindowStartId) {
-
-		for i := 0; i < len(s.ammoBag); i++ {
-
-			// check is score  if index 0 is score then offset it ,on the not score index
-			if s.ammoBag[i] != nil {
-				//fmt.Println("current index ", index)
-				//
-				//fmt.Println("current id ", id)
-				//fmt.Println("currentwindowstart:", atomic.LoadUint32(&s.currentWindowStartId))
-				//fmt.Println(s.ammoBag)
-				s.ammoBag = s.ammoBag[i:]
-				//fmt.Println(s.ammoBag)
-				atomic.AddUint32(&s.currentWindowStartId, uint32(i))
-				//s.currentWindowStartId = s.currentWindowStartId + uint32(i) + 1
-				//fmt.Println("currentwindowstart  ed:", atomic.LoadUint32(&s.currentWindowStartId))
-				break
-			}
-
-		}
-
-		if id == s.currentWindowEndId {
-			go s.Shot()
-		}
-
+	if int64(index) > s.maxWindows {
+		s.ammoBag = s.ammoBag[index:]
+		atomic.AddUint32(&s.currentWindowStartId, uint32(index))
+		go s.Shot()
+		return
 	}
+
+	if len(s.ammoBag) > index && s.ammoBag[index].AckAdd() > 3 {
+		fmt.Println("fast reshot")
+		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	s.ammoBag = s.ammoBag[index:]
+
+	atomic.AddUint32(&s.currentWindowStartId, uint32(index))
+
+	if s.currentWindowStartId >= s.currentWindowEndId {
+		go s.Shot()
+	}
+
 }
 
 func (s *Sniper) BeShot(ammo *protocol.Ammo) {
@@ -211,8 +240,25 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 	bagIndex := ammo.Id - s.beShotCurrentId
 
 	if ammo.Id < s.beShotCurrentId {
+
 		fmt.Println("ammo.Id < s.beShotCurrentId", ammo.Id)
-		s.ack(ammo.Id)
+		var id uint32
+		for k, v := range s.beShotAmmoBag {
+
+			if v == nil {
+				id = s.beShotCurrentId + uint32(k)
+				break
+			}
+
+		}
+
+		if id == 0 {
+			id = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
+		}
+
+		fmt.Println("nid ", id)
+		s.ack(id)
+
 		return
 	}
 
@@ -225,6 +271,20 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 		s.beShotAmmoBag[bagIndex] = ammo
 	}
 
+	var nid uint32
+	for k, v := range s.beShotAmmoBag {
+
+		if v == nil {
+			nid = s.beShotCurrentId + uint32(k)
+			break
+		}
+
+	}
+
+	if nid == 0 {
+		nid = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
+	}
+
 	select {
 
 	case s.readblock <- struct{}{}:
@@ -233,13 +293,17 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 
 	}
 
-	s.ack(ammo.Id)
+	fmt.Println("nid ", nid)
+	s.ack(nid)
 }
 
 func PrintAmmo(s []*protocol.Ammo) {
 
 	for _, ammo := range s {
 
+		if ammo == nil || ammo.Body == nil {
+			continue
+		}
 		fmt.Print(string(ammo.Body))
 		fmt.Print("  ")
 
@@ -262,22 +326,22 @@ loop:
 			if n < len(s.beShotAmmoBag[0].Body) {
 				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[n:]
 			} else {
-				PrintAmmo(s.beShotAmmoBag)
+				//PrintAmmo(s.beShotAmmoBag)
 				s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-				fmt.Println("ed")
-				PrintAmmo(s.beShotAmmoBag)
+				//fmt.Println("ed")
+				//PrintAmmo(s.beShotAmmoBag)
 				s.beShotCurrentId++
 			}
 			break
 
 		} else {
 
-			PrintAmmo(s.beShotAmmoBag)
+			//PrintAmmo(s.beShotAmmoBag)
 
 			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
 
-			fmt.Println("ed")
-			PrintAmmo(s.beShotAmmoBag)
+			//fmt.Println("ed")
+			//PrintAmmo(s.beShotAmmoBag)
 
 			s.beShotCurrentId++
 			continue
@@ -291,8 +355,8 @@ loop:
 		goto loop
 	}
 
-	fmt.Println(b)
-	fmt.Println(string(b))
+	//fmt.Println(b)
+	//fmt.Println(string(b))
 	return
 }
 

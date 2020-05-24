@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,7 +15,7 @@ import (
 func TestShoot(t *testing.T) {
 
 	go http.ListenAndServe(":8888", nil)
-	addr1, err := net.ResolveUDPAddr("udp", "118.25.218.132:8890")
+	addr1, err := net.ResolveUDPAddr("udp", "127.0.0.1:8890")
 	if err != nil {
 		panic(err)
 	}
@@ -30,7 +31,7 @@ func TestShoot(t *testing.T) {
 			panic(err)
 		}
 	}
-	//time.Sleep(time.Hour)
+	time.Sleep(time.Second * 10)
 
 }
 
@@ -51,13 +52,17 @@ func TestReceive(t *testing.T) {
 	sniper := h.Accept()
 
 	b := make([]byte, 1024)
-	for {
+	for i := 0; i < 10000; i++ {
 		n, err := sniper.Read(b)
 		if err != nil {
 			panic(err)
 		}
 
 		fmt.Println(string(b[:n]))
+
+		if strings.Contains(string(b[:n]), "hello9999") {
+			return
+		}
 	}
 
 }
