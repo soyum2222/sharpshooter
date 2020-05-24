@@ -80,7 +80,7 @@ loop:
 func (s *Sniper) Shot() {
 
 	if s.timeout == 0 {
-		s.timeout = int64(time.Second * 10)
+		s.timeout = int64(time.Millisecond * 500)
 	}
 	s.timeoutticker = time.NewTicker(time.Duration(s.timeout) * time.Nanosecond)
 
