@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sharpshooter/protocol"
 	"time"
@@ -66,7 +67,7 @@ func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
 	if !ok {
 		return errors.New("the addr is not dial")
 	}
-	sn.load(protocol.Unmarshal(b))
+	sn.ammoBagCach <- protocol.Unmarshal(b)
 
 	return nil
 }
@@ -142,11 +143,17 @@ loop:
 
 func (h *headquarters) Monitor() {
 
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Println(e)
+		}
+
+	}()
+
 	b := make([]byte, 1024)
 	for {
 
 		n, remote, err := h.conn.ReadFrom(b)
-
 		if err != nil {
 			continue
 		}
@@ -157,7 +164,11 @@ func (h *headquarters) Monitor() {
 
 		case protocol.ACK:
 
-			h.Snipers[remote.String()].score(msg.Id)
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+			sn.score(msg.Id)
 
 		case protocol.FIRSTHANDSHACK:
 
@@ -190,7 +201,10 @@ func (h *headquarters) Monitor() {
 
 		case protocol.SECONDHANDSHACK:
 
-			sn := h.Snipers[remote.String()]
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
 
 			ammo := protocol.Ammo{
 				Id:   0,
@@ -202,7 +216,10 @@ func (h *headquarters) Monitor() {
 
 		case protocol.THIRDHANDSHACK:
 
-			sn := h.Snipers[remote.String()]
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
 
 			sn.timeout = time.Now().UnixNano() - sn.timeout
 
@@ -214,8 +231,41 @@ func (h *headquarters) Monitor() {
 
 			h.accept <- sn
 
+		case protocol.CLOSE:
+
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+
+			// now is shot clean
+			if len(sn.ammoBag) == 0 {
+				delete(h.Snipers, remote.String())
+
+				sn.ammoBagCach <- protocol.Ammo{
+					Kind: protocol.CLOSERESP,
+					Body: nil,
+				}
+
+				sn.isClose = true
+
+			}
+
+		case protocol.CLOSERESP:
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+			sn.isClose = true
+			close(sn.closeChan)
+
 		default:
-			h.Snipers[remote.String()].BeShot(&msg)
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+
+			sn.BeShot(&msg)
 
 			select {
 

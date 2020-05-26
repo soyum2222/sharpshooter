@@ -7,9 +7,12 @@ import (
 
 const (
 	ACK = iota
+	NORMAL
 	FIRSTHANDSHACK
 	SECONDHANDSHACK
 	THIRDHANDSHACK
+	CLOSE
+	CLOSERESP
 )
 
 type Ammo struct {

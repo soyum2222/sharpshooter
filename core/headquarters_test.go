@@ -7,7 +7,6 @@ import (
 	_ "net/http/pprof"
 	"runtime"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -25,13 +24,13 @@ func TestShoot(t *testing.T) {
 		println(err)
 
 	}
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1000; i++ {
 		_, err := conn.Write([]byte("hello" + strconv.Itoa(i)))
 		if err != nil {
 			panic(err)
 		}
 	}
-	time.Sleep(time.Second * 10)
+	conn.Close()
 
 }
 
@@ -55,14 +54,11 @@ func TestReceive(t *testing.T) {
 	for i := 0; i < 10000; i++ {
 		n, err := sniper.Read(b)
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
+			return
 		}
 
 		fmt.Println(string(b[:n]))
-
-		if strings.Contains(string(b[:n]), "hello9999") {
-			return
-		}
 	}
 
 }
