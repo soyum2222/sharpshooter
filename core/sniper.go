@@ -63,7 +63,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		acksign:     make(chan struct{}, 0),
 		ammoBagCach: make(chan protocol.Ammo, 100),
 		closeChan:   make(chan struct{}, 0),
-		loadsign:    make(chan struct{}, 0),
+		loadsign:    make(chan struct{}, 1),
 	}
 	go sn.load()
 	return sn
@@ -116,9 +116,9 @@ loop:
 	}
 
 	if s.timeout == 0 {
-		s.timeout = int64(time.Millisecond * 500)
+		s.timeout = int64(time.Hour)
 	}
-	
+
 	s.timeoutticker = time.NewTicker(time.Duration(s.timeout) * time.Nanosecond)
 
 	s.mu.Lock()
@@ -174,6 +174,10 @@ loop:
 		}
 
 		goto loop
+
+	case <-s.closeChan:
+		return
+
 	}
 
 }
@@ -193,7 +197,7 @@ func (s *Sniper) ack(id uint32) {
 
 func (s *Sniper) ackSender() {
 
-	timer := time.NewTimer(time.Duration(s.timeout) / 10 * time.Nanosecond)
+	timer := time.NewTimer(time.Millisecond * 100)
 	for {
 
 		if len(s.ackpool) == 0 {
@@ -224,6 +228,9 @@ func (s *Sniper) ackSender() {
 func (s *Sniper) score(id uint32) {
 
 	fmt.Println("id", id)
+	fmt.Println("starid", s.currentWindowStartId)
+	fmt.Println("endid", s.currentWindowEndId)
+	fmt.Println("len", len(s.ammoBag))
 
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
 		return
@@ -248,7 +255,7 @@ func (s *Sniper) score(id uint32) {
 		return
 	}
 
-	if len(s.ammoBag) > index && s.ammoBag[index].AckAdd() > 3 {
+	if len(s.ammoBag) > index && s.ammoBag[index].AckAdd() > 3 && s.currentWindowStartId != s.currentWindowEndId {
 		fmt.Println("fast reshot")
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
 		if err != nil {
@@ -258,13 +265,21 @@ func (s *Sniper) score(id uint32) {
 
 	s.ammoBag = s.ammoBag[index:]
 
+	select {
+	case s.loadsign <- struct{}{}:
+	default:
+	}
+
 	atomic.AddUint32(&s.currentWindowStartId, uint32(index))
 
 	if s.currentWindowStartId >= s.currentWindowEndId {
-		select {
-		case s.loadsign <- struct{}{}:
-		default:
+		if atomic.LoadInt32(&s.shootStatus)&(shooting) == 0 {
+			fmt.Println("in")
+			go s.Shot()
+		} else {
+			fmt.Println("bad int ", atomic.LoadInt32(&s.shootStatus))
 		}
+
 	}
 
 }
@@ -325,7 +340,6 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 	select {
 
 	case s.readblock <- struct{}{}:
-
 
 	default:
 
