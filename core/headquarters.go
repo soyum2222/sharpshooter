@@ -238,18 +238,13 @@ func (h *headquarters) Monitor() {
 				continue
 			}
 
-			// now is shot clean
-			if len(sn.ammoBag) == 0 {
-				delete(h.Snipers, remote.String())
+			delete(h.Snipers, remote.String())
 
-				sn.ammoBagCach <- protocol.Ammo{
-					Kind: protocol.CLOSERESP,
-					Body: nil,
-				}
-
-				sn.isClose = true
-
+			sn.ammoBagCach <- protocol.Ammo{
+				Kind: protocol.CLOSERESP,
+				Body: nil,
 			}
+			close(sn.closeChan)
 
 		case protocol.CLOSERESP:
 			sn, ok := h.Snipers[remote.String()]

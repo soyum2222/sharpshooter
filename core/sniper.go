@@ -20,12 +20,11 @@ var (
 )
 
 type Sniper struct {
-	aim           *net.UDPAddr
-	conn          *net.UDPConn
-	ammoBag       []*protocol.Ammo
-	ammoBagCach   chan protocol.Ammo
-	beShotAmmoBag []*protocol.Ammo
-	//maxAmmoBag           int
+	aim                  *net.UDPAddr
+	conn                 *net.UDPConn
+	ammoBag              []*protocol.Ammo
+	ammoBagCach          chan protocol.Ammo
+	beShotAmmoBag        []*protocol.Ammo
 	maxWindows           int
 	sendid               uint32
 	beShotCurrentId      uint32
@@ -34,16 +33,17 @@ type Sniper struct {
 	timeout              int64
 	shootTime            int64
 	shootStatus          int32
-	handshakesign        chan struct{}
-	readblock            chan struct{}
 	timeoutticker        *time.Ticker
 	mu                   sync.RWMutex
 	bemu                 sync.Mutex
-	ackpool              map[uint32]struct{}
 	ackmu                sync.Mutex
+	ackId                uint32
+	handshakesign        chan struct{}
+	readblock            chan struct{}
 	acksign              chan struct{}
 	closeChan            chan struct{}
 	loadsign             chan struct{}
+	stopshotsign         chan struct{}
 	isClose              bool
 }
 
@@ -55,15 +55,15 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		beShotAmmoBag: make([]*protocol.Ammo, 100),
 		handshakesign: make(chan struct{}, 1),
 		readblock:     make(chan struct{}, 0),
-		//maxAmmoBag:    100,
-		maxWindows:  100,
-		mu:          sync.RWMutex{},
-		bemu:        sync.Mutex{},
-		ackpool:     map[uint32]struct{}{},
-		acksign:     make(chan struct{}, 0),
-		ammoBagCach: make(chan protocol.Ammo, 100),
-		closeChan:   make(chan struct{}, 0),
-		loadsign:    make(chan struct{}, 1),
+		maxWindows:    100,
+		mu:            sync.RWMutex{},
+		bemu:          sync.Mutex{},
+		//ackpool:       map[uint32]struct{}{},
+		acksign:      make(chan struct{}, 0),
+		ammoBagCach:  make(chan protocol.Ammo, 100),
+		closeChan:    make(chan struct{}, 0),
+		loadsign:     make(chan struct{}, 1),
+		stopshotsign: make(chan struct{}, 0),
 	}
 	go sn.load()
 	return sn
@@ -93,7 +93,6 @@ func (s *Sniper) load() {
 		s.ammoBag = append(s.ammoBag, &ammo)
 
 		if atomic.LoadInt32(&s.shootStatus)&(shooting|waittimeout) == 0 {
-			fmt.Println("in")
 			go s.Shot()
 		}
 		s.mu.Unlock()
@@ -104,29 +103,33 @@ func (s *Sniper) load() {
 func (s *Sniper) Shot() {
 
 loop:
+
 	status := atomic.LoadInt32(&s.shootStatus)
 	if status&shooting >= 1 {
-		fmt.Println("out")
 		return
 	}
 
 	if !atomic.CompareAndSwapInt32(&s.shootStatus, status, status|shooting) {
-		fmt.Println("out1")
+		fmt.Println("bad lock")
 		return
 	}
 
-	if s.timeout == 0 {
-		s.timeout = int64(time.Hour)
+	if s.timeout < int64(10*time.Millisecond) {
+		s.timeout = int64(10 * time.Millisecond)
 	}
 
-	s.timeoutticker = time.NewTicker(time.Duration(s.timeout) * time.Nanosecond)
+	s.timeoutticker = time.NewTicker(time.Duration(s.timeout))
+
+	select {
+	case s.stopshotsign <- struct{}{}:
+	default:
+	}
 
 	s.mu.Lock()
 	if s.ammoBag == nil || len(s.ammoBag) == 0 {
 		atomic.StoreInt32(&s.shootStatus, 0)
 		s.timeoutticker.Stop()
 		s.mu.Unlock()
-		fmt.Println("out2")
 		return
 	}
 
@@ -147,6 +150,7 @@ loop:
 		if err != nil {
 			panic(err)
 		}
+
 	}
 
 	for {
@@ -158,13 +162,14 @@ loop:
 
 	s.mu.Unlock()
 
-	if s.isClose {
-		close(s.closeChan)
-	}
-
 	select {
 
 	case <-s.timeoutticker.C:
+		fmt.Println("timeout", s.timeout)
+
+		if s.timeout < int64(time.Second*10) {
+			s.timeout += int64(time.Millisecond * 10)
+		}
 
 		for {
 			status = atomic.LoadInt32(&s.shootStatus)
@@ -172,10 +177,15 @@ loop:
 				break
 			}
 		}
-
 		goto loop
 
-	case <-s.closeChan:
+
+	case <-s.stopshotsign:
+		fmt.Println("sub timeout")
+		if s.timeout > int64(time.Millisecond*10) {
+			s.timeout -= int64(time.Millisecond * 10)
+		}
+
 		return
 
 	}
@@ -186,7 +196,11 @@ func (s *Sniper) ack(id uint32) {
 
 	s.ackmu.Lock()
 	defer s.ackmu.Unlock()
-	s.ackpool[id] = struct{}{}
+
+	cid := atomic.LoadUint32(&s.ackId)
+	if cid < id {
+		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
+	}
 
 	select {
 	case s.acksign <- struct{}{}:
@@ -197,40 +211,35 @@ func (s *Sniper) ack(id uint32) {
 
 func (s *Sniper) ackSender() {
 
-	timer := time.NewTimer(time.Millisecond * 100)
+	timer := time.NewTimer(time.Duration(s.timeout / 10))
 	for {
 
-		if len(s.ackpool) == 0 {
+		id := atomic.LoadUint32(&s.ackId)
+		if id == 0 {
 			<-s.acksign
 		}
-		s.ackmu.Lock()
-		for k, _ := range s.ackpool {
 
-			ammo := protocol.Ammo{
-				Id:   k,
-				Kind: protocol.ACK,
-				Body: nil,
-			}
-			_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
-			if err != nil {
-				panic(err)
-			}
-			delete(s.ackpool, k)
+		fmt.Println("nid", id)
+		ammo := protocol.Ammo{
+			Id:   id,
+			Kind: protocol.ACK,
+			Body: nil,
 		}
-		s.ackmu.Unlock()
+		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
+		if err != nil {
+			panic(err)
+		}
+
+		atomic.CompareAndSwapUint32(&s.ackId, id, 0)
 
 		<-timer.C
-		timer.Reset(time.Duration(s.timeout) / 10 * time.Nanosecond)
+
+		timer.Reset(time.Duration(s.timeout / 10))
 
 	}
 }
 
 func (s *Sniper) score(id uint32) {
-
-	fmt.Println("id", id)
-	fmt.Println("starid", s.currentWindowStartId)
-	fmt.Println("endid", s.currentWindowEndId)
-	fmt.Println("len", len(s.ammoBag))
 
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
 		return
@@ -291,9 +300,9 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 
 	bagIndex := ammo.Id - s.beShotCurrentId
 
+	// id < currentId , lost the ack
 	if ammo.Id < s.beShotCurrentId {
 
-		fmt.Println("ammo.Id < s.beShotCurrentId", ammo.Id)
 		var id uint32
 		for k, v := range s.beShotAmmoBag {
 
@@ -301,14 +310,12 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 				id = s.beShotCurrentId + uint32(k)
 				break
 			}
-
 		}
 
 		if id == 0 {
 			id = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
 		}
 
-		fmt.Println("nid ", id)
 		s.ack(id)
 
 		return
@@ -345,21 +352,7 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 
 	}
 
-	fmt.Println("nid ", nid)
 	s.ack(nid)
-}
-
-func PrintAmmo(s []*protocol.Ammo) {
-
-	for _, ammo := range s {
-
-		if ammo == nil || ammo.Body == nil {
-			continue
-		}
-		fmt.Print(string(ammo.Body))
-		fmt.Print("  ")
-
-	}
 }
 
 func (s *Sniper) Read(b []byte) (n int, err error) {
