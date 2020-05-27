@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sharpshooter/protocol"
 	"time"
 )
@@ -238,13 +239,39 @@ func (h *headquarters) Monitor() {
 				continue
 			}
 
-			delete(h.Snipers, remote.String())
+			if msg.Id == sn.beShotCurrentId {
 
-			sn.ammoBagCach <- protocol.Ammo{
-				Kind: protocol.CLOSERESP,
-				Body: nil,
+				delete(h.Snipers, remote.String())
+
+				close(sn.ammoBagCach)
+
+				sn.ack(msg.Id)
+
+				go func() {
+				l:
+					if len(sn.ammoBagCach) == 0 {
+
+						sn.isClose = true
+						close(sn.closeChan)
+
+						_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+							Kind: protocol.CLOSERESP,
+							Body: nil,
+						}), sn.aim)
+						if err != nil {
+							panic(err)
+						}
+
+					} else {
+
+						runtime.Gosched()
+						goto l
+
+					}
+
+				}()
+
 			}
-			close(sn.closeChan)
 
 		case protocol.CLOSERESP:
 			sn, ok := h.Snipers[remote.String()]

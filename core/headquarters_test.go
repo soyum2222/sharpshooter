@@ -15,6 +15,7 @@ func TestShoot(t *testing.T) {
 
 	go http.ListenAndServe(":8888", nil)
 	addr1, err := net.ResolveUDPAddr("udp", "127.0.0.1:8890")
+	//addr1, err := net.ResolveUDPAddr("udp", "118.25.218.132:8890")
 	if err != nil {
 		panic(err)
 	}
@@ -31,6 +32,8 @@ func TestShoot(t *testing.T) {
 		}
 	}
 	conn.Close()
+
+	time.Sleep(time.Second * 10)
 
 }
 
@@ -55,6 +58,7 @@ func TestReceive(t *testing.T) {
 		n, err := sniper.Read(b)
 		if err != nil {
 			fmt.Println(err)
+			fmt.Println("return")
 			return
 		}
 
@@ -191,6 +195,48 @@ func TestRand(t *testing.T) {
 	for i := 0; i < 10000; i++ {
 
 		conn.Write([]byte(strconv.Itoa(i)))
+	}
+
+}
+
+func TestTCPSend(t *testing.T) {
+
+	conn, err := net.Dial("tcp", "127.0.0.1:9970")
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i < 100; i++ {
+		_, err := conn.Write([]byte(strconv.Itoa(i)))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(i)
+	}
+
+}
+
+func TestTCPReceive(t *testing.T) {
+
+	l, err := net.Listen("tcp", ":9970")
+	if err != nil {
+		panic(err)
+	}
+	conn, err := l.Accept()
+	if err != nil {
+		panic(err)
+	}
+
+	b := make([]byte, 1024)
+	for {
+		n, err := conn.Read(b)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(b[:n]))
+		if string(b[:n]) == "50" {
+			conn.Close()
+		}
 	}
 
 }

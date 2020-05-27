@@ -130,6 +130,9 @@ loop:
 		atomic.StoreInt32(&s.shootStatus, 0)
 		s.timeoutticker.Stop()
 		s.mu.Unlock()
+		if s.isClose {
+			close(s.closeChan)
+		}
 		return
 	}
 
@@ -148,6 +151,9 @@ loop:
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[k]), s.aim)
 
 		if err != nil {
+			if s.isClose {
+				return
+			}
 			panic(err)
 		}
 
@@ -216,7 +222,12 @@ func (s *Sniper) ackSender() {
 
 		id := atomic.LoadUint32(&s.ackId)
 		if id == 0 {
-			<-s.acksign
+
+			_, ok := <-s.acksign
+			if !ok {
+				return
+			}
+
 		}
 
 		fmt.Println("nid", id)
@@ -232,7 +243,11 @@ func (s *Sniper) ackSender() {
 
 		atomic.CompareAndSwapUint32(&s.ackId, id, 0)
 
-		<-timer.C
+		select {
+		case <-timer.C:
+		case <-s.closeChan:
+			return
+		}
 
 		timer.Reset(time.Duration(s.timeout / 10))
 
@@ -430,6 +445,7 @@ func (s *Sniper) Write(b []byte) (n int, err error) {
 func (s *Sniper) Close() error {
 
 	s.ammoBagCach <- protocol.Ammo{
+		Id:   atomic.LoadUint32(&s.sendid),
 		Kind: protocol.CLOSE,
 		Body: nil,
 	}
