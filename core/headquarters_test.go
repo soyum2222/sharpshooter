@@ -45,7 +45,7 @@ func TestReceive(t *testing.T) {
 		Port: 8890,
 		Zone: "",
 	}
-	h, err := License(addr)
+	h, err := Listen(addr)
 	if err != nil {
 		panic(err)
 	}

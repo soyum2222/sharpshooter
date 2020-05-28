@@ -31,7 +31,7 @@ func Dial(addr *net.UDPAddr, timeout time.Time) (*Sniper, error) {
 	return h.Snipers[addr.String()], nil
 }
 
-func License(addr *net.UDPAddr) (*headquarters, error) {
+func Listen(addr *net.UDPAddr) (*headquarters, error) {
 
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
