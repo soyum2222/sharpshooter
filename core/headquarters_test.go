@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 	"time"
+	"os"
 )
 
 func TestShoot(t *testing.T) {
@@ -59,7 +60,7 @@ func TestReceive(t *testing.T) {
 		if err != nil {
 			fmt.Println(err)
 			fmt.Println("return")
-			return
+			os.Exit(0)
 		}
 
 		fmt.Println(string(b[:n]))
