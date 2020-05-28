@@ -126,7 +126,7 @@ loop:
 		}
 	}
 
-	sn.timeout = time.Now().UnixNano() - sn.timeout
+	sn.timeout = (time.Now().UnixNano() - sn.timeout) * 3
 
 	ammo.Kind = protocol.THIRDHANDSHACK
 
