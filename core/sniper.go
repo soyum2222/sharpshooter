@@ -68,7 +68,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		mu:            sync.RWMutex{},
 		bemu:          sync.Mutex{},
 		cachsize:      100,
-		packageSize:   1024,
+		packageSize:   10240,
 		acksign:       make(chan struct{}, 0),
 		ammoBagCach:   make(chan protocol.Ammo, 100),
 		closeChan:     make(chan struct{}, 0),
@@ -122,7 +122,7 @@ loop:
 	}
 
 	if !atomic.CompareAndSwapInt32(&s.shootStatus, status, status|shooting) {
-		fmt.Println("bad lock")
+		//fmt.Println("bad lock")
 		return
 	}
 
@@ -167,6 +167,7 @@ loop:
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[k]), s.aim)
 
+		fmt.Println(len(s.ammoBag[k].Body))
 		if err != nil {
 			panic(err)
 		}
@@ -185,7 +186,7 @@ loop:
 	select {
 
 	case <-s.timeoutticker.C:
-		fmt.Println("timeout", s.timeout)
+		//fmt.Println("timeout", s.timeout)
 
 		if s.timeout < int64(time.Second*10) {
 			s.timeout += int64(time.Millisecond * 10)
@@ -199,9 +200,8 @@ loop:
 		}
 		goto loop
 
-
 	case <-s.stopshotsign:
-		fmt.Println("sub timeout")
+		//fmt.Println("sub timeout")
 		if s.timeout > int64(time.Millisecond*10) {
 			s.timeout -= int64(time.Millisecond * 10)
 		}
@@ -244,7 +244,7 @@ func (s *Sniper) ackSender() {
 
 		}
 
-		fmt.Println("nid", id)
+		//fmt.Println("nid", id)
 		ammo := protocol.Ammo{
 			Id:   id,
 			Kind: protocol.ACK,
@@ -294,7 +294,7 @@ func (s *Sniper) score(id uint32) {
 	}
 
 	if len(s.ammoBag) > index && s.ammoBag[index].AckAdd() > 3 && s.currentWindowStartId != s.currentWindowEndId {
-		fmt.Println("fast reshot")
+		//fmt.Println("fast reshot")
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
 		if err != nil {
 			panic(err)
@@ -312,10 +312,7 @@ func (s *Sniper) score(id uint32) {
 
 	if s.currentWindowStartId >= s.currentWindowEndId {
 		if atomic.LoadInt32(&s.shootStatus)&(shooting) == 0 {
-			fmt.Println("in")
 			go s.Shot()
-		} else {
-			fmt.Println("bad int ", atomic.LoadInt32(&s.shootStatus))
 		}
 
 	}
@@ -351,7 +348,6 @@ func (s *Sniper) BeShot(ammo *protocol.Ammo) {
 	}
 
 	if int(bagIndex) >= len(s.beShotAmmoBag) {
-		fmt.Println("int(bagIndex) >= len(s.beShotAmmoBag)", ammo.Id)
 		return
 	}
 
@@ -401,22 +397,14 @@ loop:
 			if n < len(s.beShotAmmoBag[0].Body) {
 				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[n:]
 			} else {
-				//PrintAmmo(s.beShotAmmoBag)
 				s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-				//fmt.Println("ed")
-				//PrintAmmo(s.beShotAmmoBag)
 				s.beShotCurrentId++
 			}
 			break
 
 		} else {
 
-			//PrintAmmo(s.beShotAmmoBag)
-
 			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-
-			//fmt.Println("ed")
-			//PrintAmmo(s.beShotAmmoBag)
 
 			s.beShotCurrentId++
 			continue
@@ -437,8 +425,6 @@ loop:
 
 	}
 
-	//fmt.Println(b)
-	//fmt.Println(string(b))
 	return
 }
 
@@ -466,7 +452,6 @@ func (s *Sniper) wrap() {
 				Kind: protocol.NORMAL,
 				Body: s.deferSendQueue[:s.packageSize],
 			}
-			//fmt.Println(string(s.deferSendQueue[:s.packageSize]))
 
 			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
 			s.deferBlocker.Pass()

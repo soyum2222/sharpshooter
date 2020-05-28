@@ -56,10 +56,10 @@ func NewHeadquarters() *headquarters {
 	}
 }
 
-func (h *headquarters) Accept() *Sniper {
+func (h *headquarters) Accept() (*Sniper, error) {
 	sn := <-h.accept
 	go sn.ackSender()
-	return sn
+	return sn, nil
 }
 
 func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
@@ -156,8 +156,7 @@ func (h *headquarters) Monitor() {
 
 		n, remote, err := h.conn.ReadFrom(b)
 		if err != nil {
-			panic(err)
-			continue
+			return
 		}
 
 		msg := protocol.Unmarshal(b[:n])
@@ -186,14 +185,20 @@ func (h *headquarters) Monitor() {
 
 			go func() {
 
+				var tryconut int
 				ticker := time.NewTicker(time.Second)
 
 			loop:
+				if tryconut > 6 {
+					return
+				}
+
 				sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
 				select {
 
 				case <-ticker.C:
+					tryconut++
 					goto loop
 				case <-sn.handshakesign:
 					return
@@ -254,6 +259,7 @@ func (h *headquarters) Monitor() {
 
 						sn.isClose = true
 						close(sn.closeChan)
+						close(sn.acksign)
 
 						_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 							Kind: protocol.CLOSERESP,
@@ -280,6 +286,7 @@ func (h *headquarters) Monitor() {
 				continue
 			}
 			close(sn.closeChan)
+			close(sn.acksign)
 
 		default:
 			sn, ok := h.Snipers[remote.String()]
