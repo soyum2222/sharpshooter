@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sharpshooter/protocol"
+	"sharpshooter/tool/block"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,19 +26,26 @@ type Sniper struct {
 	conn                 *net.UDPConn
 	ammoBag              []*protocol.Ammo
 	ammoBagCach          chan protocol.Ammo
+	cachsize             int
 	beShotAmmoBag        []*protocol.Ammo
 	maxWindows           int
+	packageSize          int
 	sendid               uint32
 	beShotCurrentId      uint32
 	currentWindowStartId uint32
 	currentWindowEndId   uint32
+	writer               func(p []byte) (n int, err error)
+	isdefer              bool
 	timeout              int64
 	shootTime            int64
 	shootStatus          int32
+	deferSendQueue       []byte
+	deferBlocker         block.Blocker
 	timeoutticker        *time.Ticker
 	mu                   sync.RWMutex
 	bemu                 sync.Mutex
 	ackmu                sync.Mutex
+	dqmu                 sync.Mutex
 	ackId                uint32
 	handshakesign        chan struct{}
 	readblock            chan struct{}
@@ -58,13 +67,16 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		maxWindows:    100,
 		mu:            sync.RWMutex{},
 		bemu:          sync.Mutex{},
-		//ackpool:       map[uint32]struct{}{},
-		acksign:      make(chan struct{}, 0),
-		ammoBagCach:  make(chan protocol.Ammo, 100),
-		closeChan:    make(chan struct{}, 0),
-		loadsign:     make(chan struct{}, 1),
-		stopshotsign: make(chan struct{}, 0),
+		cachsize:      100,
+		packageSize:   1024,
+		acksign:       make(chan struct{}, 0),
+		ammoBagCach:   make(chan protocol.Ammo, 100),
+		closeChan:     make(chan struct{}, 0),
+		loadsign:      make(chan struct{}, 1),
+		stopshotsign:  make(chan struct{}, 0),
 	}
+	sn.writer = sn.write
+	sn.cachsize = sn.packageSize * 100
 	go sn.load()
 	return sn
 
@@ -114,10 +126,18 @@ loop:
 		return
 	}
 
+	select {
+	case <-s.closeChan:
+		return
+	default:
+
+	}
+
 	if s.timeout < int64(10*time.Millisecond) {
 		s.timeout = int64(10 * time.Millisecond)
 	}
 
+	// todo leak
 	s.timeoutticker = time.NewTicker(time.Duration(s.timeout))
 
 	select {
@@ -130,9 +150,6 @@ loop:
 		atomic.StoreInt32(&s.shootStatus, 0)
 		s.timeoutticker.Stop()
 		s.mu.Unlock()
-		if s.isClose {
-			close(s.closeChan)
-		}
 		return
 	}
 
@@ -151,9 +168,6 @@ loop:
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[k]), s.aim)
 
 		if err != nil {
-			if s.isClose {
-				return
-			}
 			panic(err)
 		}
 
@@ -428,7 +442,64 @@ loop:
 	return
 }
 
-func (s *Sniper) Write(b []byte) (n int, err error) {
+func (s *Sniper) wrap() {
+
+	var skipcount int
+	for {
+
+		select {
+		case <-s.closeChan:
+			return
+
+		default:
+
+		}
+
+		if len(s.deferSendQueue) >= s.packageSize {
+
+			skipcount = 0
+
+			id := atomic.AddUint32(&s.sendid, 1)
+			s.dqmu.Lock()
+			s.ammoBagCach <- protocol.Ammo{
+				Id:   id - 1,
+				Kind: protocol.NORMAL,
+				Body: s.deferSendQueue[:s.packageSize],
+			}
+			//fmt.Println(string(s.deferSendQueue[:s.packageSize]))
+
+			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
+			s.deferBlocker.Pass()
+			s.dqmu.Unlock()
+
+		} else {
+			if skipcount < 3 {
+				skipcount++
+				time.Sleep(time.Millisecond * 50)
+				continue
+			} else {
+				skipcount = 0
+
+				id := atomic.AddUint32(&s.sendid, 1)
+				s.dqmu.Lock()
+				s.ammoBagCach <- protocol.Ammo{
+					Id:   id - 1,
+					Kind: protocol.NORMAL,
+					Body: s.deferSendQueue,
+				}
+
+				fmt.Println(string(s.deferSendQueue[:s.packageSize]))
+				s.deferSendQueue = s.deferSendQueue[:0]
+				s.deferBlocker.Pass()
+				s.dqmu.Unlock()
+			}
+
+		}
+	}
+
+}
+
+func (s *Sniper) write(b []byte) (n int, err error) {
 
 	id := atomic.AddUint32(&s.sendid, 1)
 
@@ -442,15 +513,71 @@ func (s *Sniper) Write(b []byte) (n int, err error) {
 	return len(b), nil
 }
 
-func (s *Sniper) Close() error {
+func (s *Sniper) Write(b []byte) (n int, err error) {
+	if s.isClose {
+		return 0, CLOSEERROR
+	}
+	return s.writer(b)
+}
 
-	s.ammoBagCach <- protocol.Ammo{
-		Id:   atomic.LoadUint32(&s.sendid),
-		Kind: protocol.CLOSE,
-		Body: nil,
+func (s *Sniper) OpenDeferSend() {
+	s.writer = s.deferSend
+	s.isdefer = true
+	go s.wrap()
+}
+
+func (s *Sniper) deferSend(b []byte) (n int, err error) {
+
+loop:
+	select {
+	case <-s.closeChan:
+		return 0, CLOSEERROR
+	default:
+
+		if len(s.deferSendQueue)+len(b) > s.cachsize {
+			// need block
+			s.deferBlocker.Block()
+			goto loop
+
+		} else {
+			s.dqmu.Lock()
+			s.deferSendQueue = append(s.deferSendQueue, b...)
+			s.dqmu.Unlock()
+			return len(b), nil
+		}
 	}
 
-	<-s.closeChan
+}
+
+func (s *Sniper) Close() error {
+
+	if s.isdefer {
+
+	loop:
+		if len(s.deferSendQueue) == 0 {
+			s.ammoBagCach <- protocol.Ammo{
+				Id:   atomic.LoadUint32(&s.sendid),
+				Kind: protocol.CLOSE,
+				Body: nil,
+			}
+			<-s.closeChan
+		} else {
+			runtime.Gosched()
+			goto loop
+
+		}
+
+	} else {
+
+		s.isClose = true
+		s.ammoBagCach <- protocol.Ammo{
+			Id:   atomic.LoadUint32(&s.sendid),
+			Kind: protocol.CLOSE,
+			Body: nil,
+		}
+
+		<-s.closeChan
+	}
 
 	return s.conn.Close()
 }

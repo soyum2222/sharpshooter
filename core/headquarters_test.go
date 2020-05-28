@@ -24,8 +24,8 @@ func TestShoot(t *testing.T) {
 	conn, err := Dial(addr1, time.Time{})
 	if err != nil {
 		println(err)
-
 	}
+	conn.OpenDeferSend()
 	for i := 0; i < 10000; i++ {
 		_, err := conn.Write([]byte("hello" + strconv.Itoa(i)))
 		if err != nil {
@@ -33,8 +33,6 @@ func TestShoot(t *testing.T) {
 		}
 	}
 	conn.Close()
-
-	time.Sleep(time.Second * 10)
 
 }
 
@@ -208,13 +206,16 @@ func TestTCPSend(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		_, err := conn.Write([]byte(strconv.Itoa(i)))
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(i)
+		go func(i int) {
+			fmt.Println(i)
+			_, err := conn.Write([]byte(strconv.Itoa(i)))
+			if err != nil {
+				panic(err)
+			}
+		}(i)
 	}
 
+	time.Sleep(time.Hour)
 }
 
 func TestTCPReceive(t *testing.T) {
@@ -235,9 +236,37 @@ func TestTCPReceive(t *testing.T) {
 			panic(err)
 		}
 		fmt.Println(string(b[:n]))
-		if string(b[:n]) == "50" {
-			conn.Close()
-		}
+		//if string(b[:n]) == "50" {
+		//	conn.Close()
+		//}
 	}
 
+}
+
+func TestChan(t *testing.T) {
+	c := make(chan int, 0)
+
+	go func() {
+		<-c
+		fmt.Println(1)
+	}()
+	time.Sleep(time.Second)
+
+	go func() {
+		<-c
+		fmt.Println(2)
+	}()
+	time.Sleep(time.Second)
+
+	go func() {
+		<-c
+		fmt.Println(3)
+	}()
+	time.Sleep(time.Second)
+
+	c <- 1
+	c <- 1
+	c <- 1
+
+	time.Sleep(time.Second)
 }

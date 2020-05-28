@@ -151,11 +151,12 @@ func (h *headquarters) Monitor() {
 
 	}()
 
-	b := make([]byte, 1024)
+	b := make([]byte, 1024000)
 	for {
 
 		n, remote, err := h.conn.ReadFrom(b)
 		if err != nil {
+			panic(err)
 			continue
 		}
 
@@ -278,7 +279,6 @@ func (h *headquarters) Monitor() {
 			if !ok {
 				continue
 			}
-			sn.isClose = true
 			close(sn.closeChan)
 
 		default:
