@@ -5,11 +5,11 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"runtime"
 	"strconv"
 	"testing"
 	"time"
-	"os"
 )
 
 func TestShoot(t *testing.T) {
@@ -50,7 +50,10 @@ func TestReceive(t *testing.T) {
 		panic(err)
 	}
 
-	sniper := h.Accept()
+	sniper, err := h.Accept()
+	if err != nil {
+		panic(err)
+	}
 
 	b := make([]byte, 1024)
 	for i := 0; i < 10000; i++ {
@@ -244,29 +247,43 @@ func TestTCPReceive(t *testing.T) {
 }
 
 func TestChan(t *testing.T) {
+
 	c := make(chan int, 0)
 
 	go func() {
-		<-c
+		fmt.Println(<-c)
+	}()
+
+	go func() {
+		select {
+		case c <- 1:
+		default:
+		}
+	}()
+
+}
+
+func blockkk() chan int {
+	c := make(chan int, 1)
+
+	fmt.Println("block")
+
+	time.Sleep(time.Second * 10)
+
+	c <- 1
+
+	return c
+}
+
+func TestSelect(t *testing.T) {
+
+	select {
+	case <-blockkk():
 		fmt.Println(1)
-	}()
-	time.Sleep(time.Second)
-
-	go func() {
-		<-c
+	case <-blockkk():
 		fmt.Println(2)
-	}()
-	time.Sleep(time.Second)
-
-	go func() {
-		<-c
+	case <-blockkk():
 		fmt.Println(3)
-	}()
-	time.Sleep(time.Second)
+	}
 
-	c <- 1
-	c <- 1
-	c <- 1
-
-	time.Sleep(time.Second)
 }

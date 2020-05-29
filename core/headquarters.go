@@ -288,6 +288,13 @@ func (h *headquarters) Monitor() {
 			close(sn.closeChan)
 			close(sn.acksign)
 
+		case protocol.Heartbeat:
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+			sn.timeoutPanicTimer.Reset(time.Second * 10)
+
 		default:
 			sn, ok := h.Snipers[remote.String()]
 			if !ok {

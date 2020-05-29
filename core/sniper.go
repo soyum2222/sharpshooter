@@ -37,6 +37,7 @@ type Sniper struct {
 	writer               func(p []byte) (n int, err error)
 	isdefer              bool
 	timeout              int64
+	timeoutPanicTimer    *time.Timer
 	shootTime            int64
 	shootStatus          int32
 	deferSendQueue       []byte
@@ -44,7 +45,6 @@ type Sniper struct {
 	timeoutticker        *time.Ticker
 	mu                   sync.RWMutex
 	bemu                 sync.Mutex
-	ackmu                sync.Mutex
 	dqmu                 sync.Mutex
 	ackId                uint32
 	handshakesign        chan struct{}
@@ -53,6 +53,7 @@ type Sniper struct {
 	closeChan            chan struct{}
 	loadsign             chan struct{}
 	stopshotsign         chan struct{}
+	errorchan            chan error
 	isClose              bool
 }
 
@@ -74,11 +75,52 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		closeChan:     make(chan struct{}, 0),
 		loadsign:      make(chan struct{}, 1),
 		stopshotsign:  make(chan struct{}, 0),
+		errorchan:     make(chan error, 1),
 	}
 	sn.writer = sn.write
 	sn.cachsize = sn.packageSize * 100
 	go sn.load()
+	go sn.heartbeat()
 	return sn
+
+}
+
+func (s *Sniper) heartbeat() {
+
+	t := time.NewTicker(time.Second)
+	for {
+
+		select {
+		case <-t.C:
+
+			if atomic.LoadInt32(&s.shootStatus) != 0 {
+				return
+			}
+
+			ammo := protocol.Ammo{
+				Id:   0,
+				Kind: protocol.Heartbeat,
+				Body: nil,
+			}
+
+			s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
+		}
+
+	}
+
+}
+
+func (s *Sniper) timeoutPanic() {
+
+	if s.timeoutPanicTimer == nil {
+		s.timeoutPanicTimer = time.NewTimer(time.Second * 10)
+	}
+
+	select {
+	case <-s.timeoutPanicTimer.C:
+		s.timeoutPanicTimer.Stop()
+		s.errorchan <- errors.New("timeout")
+	}
 
 }
 
@@ -93,13 +135,17 @@ func (s *Sniper) load() {
 		s.mu.Lock()
 	loop:
 		if len(s.ammoBag) >= s.maxWindows {
-			s.mu.Unlock()
+
 			if atomic.LoadInt32(&s.shootStatus)&(shooting|waittimeout) == 0 {
 				go s.Shot()
 			}
+
+			s.mu.Unlock()
 			<-s.loadsign
+
 			s.mu.Lock()
 			goto loop
+
 		}
 
 		s.ammoBag = append(s.ammoBag, &ammo)
@@ -153,6 +199,8 @@ loop:
 		atomic.StoreInt32(&s.shootStatus, 0)
 		s.timeoutticker.Stop()
 		s.mu.Unlock()
+
+		go s.heartbeat()
 		fmt.Println("out2")
 		return
 	}
@@ -222,9 +270,6 @@ loop:
 }
 
 func (s *Sniper) ack(id uint32) {
-
-	s.ackmu.Lock()
-	defer s.ackmu.Unlock()
 
 	cid := atomic.LoadUint32(&s.ackId)
 	if cid < id {
@@ -414,21 +459,25 @@ loop:
 		} else {
 
 			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-
 			s.beShotCurrentId++
 			continue
 		}
+
 	}
 
 	s.bemu.Unlock()
 
 	if n <= 0 {
 		select {
+
 		case <-s.readblock:
 			goto loop
 
 		case <-s.closeChan:
 			return 0, CLOSEERROR
+
+		case err := <-s.errorchan:
+			return 0, err
 
 		}
 
@@ -456,15 +505,17 @@ func (s *Sniper) wrap() {
 
 			id := atomic.AddUint32(&s.sendid, 1)
 
+			s.dqmu.Lock()
 			s.ammoBagCach <- protocol.Ammo{
 				Id:   id - 1,
 				Kind: protocol.NORMAL,
 				Body: s.deferSendQueue[:s.packageSize],
 			}
-			s.dqmu.Lock()
+
 			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
-			s.deferBlocker.Pass()
 			s.dqmu.Unlock()
+
+			s.deferBlocker.Pass()
 
 		} else if len(s.deferSendQueue) == 0 {
 			// give way
@@ -478,17 +529,17 @@ func (s *Sniper) wrap() {
 				skipcount = 0
 
 				id := atomic.AddUint32(&s.sendid, 1)
+
+				s.dqmu.Lock()
 				s.ammoBagCach <- protocol.Ammo{
 					Id:   id - 1,
 					Kind: protocol.NORMAL,
 					Body: s.deferSendQueue,
 				}
 
-				//fmt.Println(string(s.deferSendQueue[:s.packageSize]))
-				s.dqmu.Lock()
 				s.deferSendQueue = s.deferSendQueue[:0]
-				s.deferBlocker.Pass()
 				s.dqmu.Unlock()
+				s.deferBlocker.Pass()
 			}
 
 		}
@@ -500,11 +551,17 @@ func (s *Sniper) write(b []byte) (n int, err error) {
 
 	id := atomic.AddUint32(&s.sendid, 1)
 
-	s.ammoBagCach <- protocol.Ammo{
+	select {
+
+	case s.ammoBagCach <- protocol.Ammo{
 		Length: 0,
 		Id:     id - 1,
 		Kind:   protocol.NORMAL,
 		Body:   b,
+	}:
+	case err := <-s.errorchan:
+		return 0, err
+
 	}
 
 	return len(b), nil
@@ -529,6 +586,9 @@ loop:
 	select {
 	case <-s.closeChan:
 		return 0, CLOSEERROR
+	case err := <-s.errorchan:
+		return 0, err
+
 	default:
 
 		if len(s.deferSendQueue)+len(b) > s.cachsize {

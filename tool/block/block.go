@@ -33,3 +33,7 @@ func (b *Blocker) Pass() error {
 		return noblock
 	}
 }
+
+func (b *Blocker) Close() {
+	close(b.c)
+}
