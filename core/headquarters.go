@@ -2,10 +2,10 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,7 +26,7 @@ func Dial(addr *net.UDPAddr, timeout time.Time) (*Sniper, error) {
 		return nil, err
 	}
 
-	go h.Monitor()
+	go h.monitor()
 
 	return h.Snipers[addr.String()], nil
 }
@@ -41,7 +41,7 @@ func Listen(addr *net.UDPAddr) (*headquarters, error) {
 	h := NewHeadquarters()
 	h.conn = conn
 
-	go h.Monitor()
+	go h.monitor()
 
 	return h, nil
 
@@ -126,7 +126,11 @@ loop:
 		}
 	}
 
-	sn.timeout = (time.Now().UnixNano() - sn.timeout) * 3
+	sn.timeout = (time.Now().UnixNano() - sn.timeout)
+
+	if sn.timeout < 1000000 {
+		sn.timeout = 1000000
+	}
 
 	ammo.Kind = protocol.THIRDHANDSHACK
 
@@ -138,18 +142,20 @@ loop:
 	h.Snipers[addr.String()] = sn
 
 	go sn.ackSender()
+	sn.healthTimer = time.NewTimer(time.Second * 3)
+	go sn.healthMonitor()
 
 	return nil
 }
 
-func (h *headquarters) Monitor() {
-
-	defer func() {
-		if e := recover(); e != nil {
-			fmt.Println(e)
-		}
-
-	}()
+func (h *headquarters) monitor() {
+	//
+	//defer func() {
+	//	if e := recover(); e != nil {
+	//		fmt.Println(e)
+	//	}
+	//
+	//}()
 
 	b := make([]byte, 1024000)
 	for {
@@ -169,6 +175,7 @@ func (h *headquarters) Monitor() {
 			if !ok {
 				continue
 			}
+			sn.healthTimer.Reset(time.Second * 2)
 			sn.score(msg.Id)
 
 		case protocol.FIRSTHANDSHACK:
@@ -230,9 +237,12 @@ func (h *headquarters) Monitor() {
 
 			sn.timeout = time.Now().UnixNano() - sn.timeout
 
-			if sn.timeout == 0 {
-				sn.timeout = int64(time.Second)
+			if sn.timeout < 1000000 {
+				sn.timeout = 1000000
 			}
+
+			sn.healthTimer = time.NewTimer(time.Second * 2)
+			go sn.healthMonitor()
 
 			sn.handshakesign <- struct{}{}
 
@@ -286,20 +296,36 @@ func (h *headquarters) Monitor() {
 				continue
 			}
 			close(sn.closeChan)
-			close(sn.acksign)
 
-		case protocol.Heartbeat:
+		case protocol.HEALTHCHECK:
 			sn, ok := h.Snipers[remote.String()]
 			if !ok {
 				continue
 			}
-			sn.timeoutPanicTimer.Reset(time.Second * 10)
+			sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+				Kind: protocol.HEALTCHRESP,
+			}), sn.aim)
+
+		case protocol.HEALTCHRESP:
+			sn, ok := h.Snipers[remote.String()]
+			if !ok {
+				continue
+			}
+
+			atomic.StoreInt32(&sn.healthTryCount, 0)
+			t := time.Now().UnixNano()
+			sn.timeout = t - sn.timeFlag
+			if sn.timeout < 1000000 {
+				sn.timeout = 1000000
+			}
 
 		default:
 			sn, ok := h.Snipers[remote.String()]
 			if !ok {
 				continue
 			}
+
+			sn.healthTimer.Reset(time.Second * 2)
 
 			sn.BeShot(&msg)
 

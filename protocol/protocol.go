@@ -13,7 +13,8 @@ const (
 	THIRDHANDSHACK
 	CLOSE
 	CLOSERESP
-	Heartbeat
+	HEALTHCHECK
+	HEALTCHRESP
 )
 
 type Ammo struct {
