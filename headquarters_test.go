@@ -1,4 +1,4 @@
-package core
+package sharpshooter
 
 import (
 	"fmt"
@@ -15,8 +15,8 @@ import (
 func TestShoot(t *testing.T) {
 
 	go http.ListenAndServe(":8888", nil)
-	addr1, err := net.ResolveUDPAddr("udp", "127.0.0.1:8890")
-	//addr1, err := net.ResolveUDPAddr("udp", "118.25.218.132:8890")
+
+	//addr1, err := net.ResolveUDPAddr("udp", "127.0.0.1:8890")
 	if err != nil {
 		panic(err)
 	}
@@ -104,11 +104,21 @@ func TestUdp(t *testing.T) {
 	//if err != nil {
 	//	panic(err)
 	//}
+	file, err := os.Open("../yewen.mp4")
+	//file, err := os.Open("./gops")
+	if err != nil {
+		panic(err)
+	}
+	b := make([]byte, 10240)
 
 	for {
-
-		fmt.Println(conn.WriteTo([]byte("aaa"), addr))
-		time.Sleep(time.Second)
+		n, err := file.Read(b)
+		if err != nil {
+			panic(err)
+		}
+		conn.WriteToUDP(b[:n], addr)
+		//fmt.Println(conn.WriteTo([]byte("aaa"), addr))
+		//time.Sleep(time.Second)
 	}
 
 }

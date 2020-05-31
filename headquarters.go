@@ -1,4 +1,4 @@
-package core
+package sharpshooter
 
 import (
 	"errors"
@@ -175,7 +175,7 @@ func (h *headquarters) monitor() {
 			if !ok {
 				continue
 			}
-			sn.healthTimer.Reset(time.Second * 2)
+			sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 			sn.score(msg.Id)
 
 		case protocol.FIRSTHANDSHACK:
@@ -325,7 +325,7 @@ func (h *headquarters) monitor() {
 				continue
 			}
 
-			sn.healthTimer.Reset(time.Second * 2)
+			sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 
 			sn.BeShot(&msg)
 

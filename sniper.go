@@ -1,4 +1,4 @@
-package core
+package sharpshooter
 
 import (
 	"errors"
@@ -17,76 +17,83 @@ const (
 	waittimeout
 )
 
+const (
+	DEFAULT_INIT_SENDWIND                      = 32
+	DEFAULT_INIT_RECEWIND                      = 1024
+	DEFAULT_INIT_PACKSIZE                      = 1024
+	DEFAULT_INIT_HEALTHTICKER                  = 3
+	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
+	DEFAULT_INIT_SENDCACH                      = 0xff
+)
+
 var (
 	CLOSEERROR   = errors.New("the connection is closed")
 	TIMEOUTERROR = errors.New("health monitor timeout ")
 )
 
 type Sniper struct {
-	aim                  *net.UDPAddr
-	conn                 *net.UDPConn
-	ammoBag              []*protocol.Ammo
-	ammoBagCach          chan protocol.Ammo
-	cachsize             int
-	beShotAmmoBag        []*protocol.Ammo
+	isdefer              bool
+	isClose              bool
 	maxWindows           int32
-	packageSize          int
+	healthTryCount       int32
 	sendid               uint32
 	beShotCurrentId      uint32
 	currentWindowStartId uint32
 	currentWindowEndId   uint32
-	writer               func(p []byte) (n int, err error)
-	isdefer              bool
+	shootStatus          int32
+	ackId                uint32
+	packageSize          int
+	cachsize             int
 	timeout              int64
 	shootTime            int64
-	shootStatus          int32
-	deferSendQueue       []byte
-	deferBlocker         block.Blocker
+	timeFlag             int64
+	writer               func(p []byte) (n int, err error)
+	aim                  *net.UDPAddr
+	conn                 *net.UDPConn
 	timeoutticker        *time.Ticker
-	mu                   sync.RWMutex
-	bemu                 sync.Mutex
-	dqmu                 sync.Mutex
-	ackId                uint32
-	handshakesign        chan struct{}
+	healthTimer          *time.Timer
+	deferSendQueue       []byte
+	ammoBag              []*protocol.Ammo
+	beShotAmmoBag        []*protocol.Ammo
+	ammoBagCach          chan protocol.Ammo
 	readblock            chan struct{}
+	handshakesign        chan struct{}
 	acksign              chan struct{}
 	closeChan            chan struct{}
 	loadsign             chan struct{}
 	stopshotsign         chan struct{}
 	errorchan            chan error
-	isClose              bool
-	healthTimer          *time.Timer
-	healthTryCount       int32
-	timeFlag             int64
+	deferBlocker         block.Blocker
+	mu                   sync.RWMutex
+	bemu                 sync.Mutex
+	dqmu                 sync.Mutex
 }
 
 func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
+
 	sn := &Sniper{
 		aim:           aim,
 		conn:          conn,
 		timeout:       timeout,
-		beShotAmmoBag: make([]*protocol.Ammo, 10240),
+		beShotAmmoBag: make([]*protocol.Ammo, DEFAULT_INIT_RECEWIND),
 		handshakesign: make(chan struct{}, 1),
 		readblock:     make(chan struct{}, 0),
-		maxWindows:    32,
+		maxWindows:    DEFAULT_INIT_SENDWIND,
 		mu:            sync.RWMutex{},
 		bemu:          sync.Mutex{},
-		cachsize:      10240 * 10,
-		packageSize:   1024,
+		cachsize:      DEFAULT_INIT_PACKSIZE * 10,
+		packageSize:   DEFAULT_INIT_PACKSIZE,
 		acksign:       make(chan struct{}, 0),
-		ammoBagCach:   make(chan protocol.Ammo),
+		ammoBagCach:   make(chan protocol.Ammo, DEFAULT_INIT_SENDCACH),
 		closeChan:     make(chan struct{}, 0),
 		loadsign:      make(chan struct{}, 1),
 		stopshotsign:  make(chan struct{}, 0),
-
-		errorchan: make(chan error, 1),
+		errorchan:     make(chan error, 1),
 	}
+
 	sn.writer = sn.write
-	sn.cachsize = sn.packageSize * 1000
 	go sn.load()
-
 	return sn
-
 }
 
 func (s *Sniper) healthMonitor() {
@@ -95,7 +102,7 @@ func (s *Sniper) healthMonitor() {
 
 		select {
 		case <-s.healthTimer.C:
-			if s.healthTryCount < 3 {
+			if s.healthTryCount < DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT {
 
 				if s.healthTryCount == 0 {
 					s.timeFlag = time.Now().UnixNano()
@@ -107,7 +114,7 @@ func (s *Sniper) healthMonitor() {
 				}), s.aim)
 
 				atomic.AddInt32(&s.healthTryCount, 1)
-				s.healthTimer.Reset(time.Second * 2)
+				s.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 
 			} else {
 				// timeout
@@ -139,7 +146,7 @@ func (s *Sniper) load() {
 		if len(s.ammoBag) >= int(s.maxWindows)*2 {
 
 			if atomic.LoadInt32(&s.shootStatus) == 0 {
-				go s.Shot()
+				go s.shot()
 			}
 
 			s.mu.Unlock()
@@ -159,16 +166,14 @@ func (s *Sniper) load() {
 
 		if atomic.LoadInt32(&s.shootStatus) == 0 {
 			fmt.Println("load in shot")
-			go s.Shot()
+			go s.shot()
 		}
 		s.mu.Unlock()
 
 	}
 }
 
-func (s *Sniper) Shot() {
-
-	//fmt.Println("in")
+func (s *Sniper) shot() {
 
 loop:
 
@@ -203,7 +208,6 @@ l:
 		c++
 		goto l
 	}
-
 	c = 0
 
 	s.mu.Lock()
@@ -378,7 +382,7 @@ func (s *Sniper) score(id uint32) {
 
 	if s.currentWindowStartId >= s.currentWindowEndId {
 		if atomic.LoadInt32(&s.shootStatus)&(shooting) == 0 {
-			go s.Shot()
+			go s.shot()
 		}
 
 	}
