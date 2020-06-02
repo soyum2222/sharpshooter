@@ -269,7 +269,7 @@ func (h *headquarters) monitor() {
 
 						sn.isClose = true
 						close(sn.closeChan)
-						close(sn.acksign)
+						//close(sn.acksign)
 
 						_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 							Kind: protocol.CLOSERESP,
