@@ -16,7 +16,7 @@ type headquarters struct {
 	accept    chan *Sniper
 }
 
-func Dial(addr *net.UDPAddr, timeout time.Time) (*Sniper, error) {
+func Dial(addr *net.UDPAddr) (*Sniper, error) {
 
 	h := NewHeadquarters()
 
@@ -128,8 +128,8 @@ loop:
 
 	sn.timeout = (time.Now().UnixNano() - sn.timeout)
 
-	if sn.timeout < 1000000 {
-		sn.timeout = 1000000
+	if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
+		sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
 	}
 
 	ammo.Kind = protocol.THIRDHANDSHACK
@@ -237,8 +237,8 @@ func (h *headquarters) monitor() {
 
 			sn.timeout = time.Now().UnixNano() - sn.timeout
 
-			if sn.timeout < 1000000 {
-				sn.timeout = 1000000
+			if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
+				sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
 			}
 
 			sn.healthTimer = time.NewTimer(time.Second * 2)
@@ -315,8 +315,8 @@ func (h *headquarters) monitor() {
 			atomic.StoreInt32(&sn.healthTryCount, 0)
 			t := time.Now().UnixNano()
 			sn.timeout = t - sn.timeFlag
-			if sn.timeout < 1000000 {
-				sn.timeout = 1000000
+			if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
+				sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
 			}
 
 		default:

@@ -24,6 +24,7 @@ const (
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
 	DEFAULT_INIT_SENDCACH                      = 0xff
+	DEFAULT_INIT_MIN_TIMEOUT                   = int64(5 * time.Second)
 )
 
 var (
@@ -301,7 +302,7 @@ func (s *Sniper) ack(id uint32) {
 
 func (s *Sniper) ackSender() {
 
-	timer := time.NewTimer(time.Duration(s.timeout / 10))
+	timer := time.NewTimer(time.Millisecond * 200)
 	for {
 
 		id := atomic.LoadUint32(&s.ackId)
