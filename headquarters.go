@@ -327,7 +327,7 @@ func (h *headquarters) monitor() {
 
 			sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 
-			sn.BeShot(&msg)
+			sn.beShot(&msg)
 
 			select {
 

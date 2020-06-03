@@ -15,6 +15,7 @@ const (
 	CLOSERESP
 	HEALTHCHECK
 	HEALTCHRESP
+	OUTOFAMMO
 )
 
 type Ammo struct {

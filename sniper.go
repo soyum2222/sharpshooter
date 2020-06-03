@@ -59,15 +59,15 @@ type Sniper struct {
 	ammoBagCach          chan protocol.Ammo
 	readblock            chan struct{}
 	handshakesign        chan struct{}
-	//acksign              chan struct{}
-	closeChan    chan struct{}
-	loadsign     chan struct{}
-	stopshotsign chan struct{}
-	errorchan    chan error
-	deferBlocker block.Blocker
-	mu           sync.RWMutex
-	bemu         sync.Mutex
-	dqmu         sync.Mutex
+	acksign              chan struct{}
+	closeChan            chan struct{}
+	loadsign             chan struct{}
+	stopshotsign         chan struct{}
+	errorchan            chan error
+	deferBlocker         block.Blocker
+	mu                   sync.RWMutex
+	bemu                 sync.Mutex
+	dqmu                 sync.RWMutex
 }
 
 func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
@@ -84,12 +84,12 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		bemu:          sync.Mutex{},
 		cachsize:      DEFAULT_INIT_PACKSIZE * 10,
 		packageSize:   DEFAULT_INIT_PACKSIZE,
-		//acksign:       make(chan struct{}, 0),
-		ammoBagCach:  make(chan protocol.Ammo, DEFAULT_INIT_SENDCACH),
-		closeChan:    make(chan struct{}, 0),
-		loadsign:     make(chan struct{}, 1),
-		stopshotsign: make(chan struct{}, 0),
-		errorchan:    make(chan error, 1),
+		acksign:       make(chan struct{}, 0),
+		ammoBagCach:   make(chan protocol.Ammo, DEFAULT_INIT_SENDCACH),
+		closeChan:     make(chan struct{}, 0),
+		loadsign:      make(chan struct{}, 1),
+		stopshotsign:  make(chan struct{}, 0),
+		errorchan:     make(chan error, 1),
 	}
 
 	sn.deferBlocker.Init()
@@ -122,7 +122,7 @@ func (s *Sniper) healthMonitor() {
 			} else {
 				// timeout
 				s.errorchan <- TIMEOUTERROR
-				//close(s.acksign)
+				close(s.acksign)
 				close(s.readblock)
 				close(s.closeChan)
 
@@ -216,14 +216,24 @@ l:
 
 	s.mu.Lock()
 	if s.ammoBag == nil || len(s.ammoBag) == 0 {
+
 		atomic.StoreInt32(&s.shootStatus, 0)
+
 		s.timeoutticker.Stop()
+
+		_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+			Id:   0,
+			Kind: protocol.OUTOFAMMO,
+			Body: nil,
+		}), s.aim)
+
 		s.mu.Unlock()
+
 		fmt.Println("out2")
+
 		return
 	}
 
-	//fmt.Println("ammolen", len(s.ammoBag))
 	for k, _ := range s.ammoBag {
 
 		if s.ammoBag[k] == nil {
@@ -264,7 +274,7 @@ l:
 		timeout = timeout * 2
 
 		if s.maxWindows > 1 {
-			atomic.StoreInt32(&s.maxWindows, s.maxWindows/2)
+			atomic.StoreInt32(&s.maxWindows, int32(float64(s.maxWindows)/1.25))
 		}
 
 		fmt.Println(s.maxWindows)
@@ -296,10 +306,10 @@ func (s *Sniper) ack(id uint32) {
 		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
 	}
 
-	//select {
-	//case s.acksign <- struct{}{}:
-	//default:
-	//}
+	select {
+	case s.acksign <- struct{}{}:
+	default:
+	}
 
 }
 
@@ -311,10 +321,10 @@ func (s *Sniper) ackSender() {
 		id := atomic.LoadUint32(&s.ackId)
 		if id == 0 {
 
-			//_, ok := <-s.acksign
-			//if !ok {
-			//	return
-			//}
+			_, ok := <-s.acksign
+			if !ok {
+				return
+			}
 			continue
 
 		}
@@ -398,9 +408,14 @@ func (s *Sniper) score(id uint32) {
 
 }
 
-func (s *Sniper) BeShot(ammo *protocol.Ammo) {
+func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
 	fmt.Println("receive id ", ammo.Id)
+
+	if ammo.Kind == protocol.OUTOFAMMO {
+		atomic.StoreUint32(&s.ackId, 0)
+		return
+	}
 
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
@@ -518,7 +533,9 @@ func (s *Sniper) wrap() {
 	var skipcount int
 	for {
 
+		s.dqmu.RLock()
 		if len(s.deferSendQueue) >= s.packageSize {
+			s.dqmu.RUnlock()
 
 			skipcount = 0
 
@@ -543,9 +560,14 @@ func (s *Sniper) wrap() {
 			s.deferBlocker.Pass()
 
 		} else if len(s.deferSendQueue) == 0 {
+			s.dqmu.RUnlock()
+
+			s.deferBlocker.Pass()
 			// give way
 			runtime.Gosched()
 		} else {
+			s.dqmu.RUnlock()
+
 			if skipcount < 3 {
 				skipcount++
 				time.Sleep(time.Millisecond * 50)
@@ -621,14 +643,16 @@ loop:
 
 	default:
 
-		s.dqmu.Lock()
+		s.dqmu.RLock()
 		if len(s.deferSendQueue)+len(b) > s.cachsize {
+			s.dqmu.RUnlock()
 			// need block
-			s.dqmu.Unlock()
 			s.deferBlocker.Block()
 			goto loop
 
 		} else {
+			s.dqmu.RUnlock()
+			s.dqmu.Lock()
 			s.deferSendQueue = append(s.deferSendQueue, b...)
 			s.dqmu.Unlock()
 			return len(b), nil
@@ -655,7 +679,7 @@ func (s *Sniper) Close() {
 			select {
 
 			case <-s.closeChan:
-				//close(s.acksign)
+				close(s.acksign)
 				close(s.readblock)
 
 			}
@@ -678,7 +702,7 @@ func (s *Sniper) Close() {
 		select {
 
 		case <-s.closeChan:
-			//close(s.acksign)
+			close(s.acksign)
 			close(s.readblock)
 		}
 
