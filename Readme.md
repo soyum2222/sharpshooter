@@ -1,5 +1,6 @@
-TODO 挥手
-TODO timeout 优化
-TODO 拥塞控制
-TODO 延时发送
-TODO 心跳
+
+### Sharpshooter
+
+    Sharpshooter is a reliable reliability network protocol useing UDP
+    
+    It has a very simple congestion control , send windows , defer ack and more 
