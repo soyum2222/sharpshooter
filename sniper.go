@@ -24,7 +24,7 @@ const (
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
 	DEFAULT_INIT_SENDCACH                      = 0xff
-	DEFAULT_INIT_MIN_TIMEOUT                   = int64(500 * time.Millisecond)
+	DEFAULT_INIT_MIN_TIMEOUT                   = int64(1000 * time.Millisecond)
 )
 
 var (
