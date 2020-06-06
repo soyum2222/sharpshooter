@@ -16,19 +16,23 @@ type headquarters struct {
 	accept    chan *Sniper
 }
 
-func Dial(addr *net.UDPAddr) (*Sniper, error) {
+func Dial(addr string) (*Sniper, error) {
 
 	h := NewHeadquarters()
 
+	udpaddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
 	// todo timeout
-	err := h.Dial(addr)
+	err = h.Dial(udpaddr)
 	if err != nil {
 		return nil, err
 	}
 
 	go h.monitor()
 
-	return h.Snipers[addr.String()], nil
+	return h.Snipers[udpaddr.String()], nil
 }
 
 func Listen(addr *net.UDPAddr) (*headquarters, error) {
@@ -157,11 +161,12 @@ func (h *headquarters) monitor() {
 	//
 	//}()
 
-	b := make([]byte, 1024000)
+	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
 	for {
 
 		n, remote, err := h.conn.ReadFrom(b)
 		if err != nil {
+			panic(err)
 			return
 		}
 
@@ -244,7 +249,11 @@ func (h *headquarters) monitor() {
 			sn.healthTimer = time.NewTimer(time.Second * 2)
 			go sn.healthMonitor()
 
-			sn.handshakesign <- struct{}{}
+			select {
+			case sn.handshakesign <- struct{}{}:
+			default:
+
+			}
 
 			h.accept <- sn
 
@@ -259,6 +268,9 @@ func (h *headquarters) monitor() {
 
 				delete(h.Snipers, remote.String())
 
+				sn.isClose = true
+				sn.acksign.Close()
+				sn.deferBlocker.Close()
 				close(sn.ammoBagCach)
 
 				sn.ack(msg.Id)

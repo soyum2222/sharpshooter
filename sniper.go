@@ -59,12 +59,12 @@ type Sniper struct {
 	ammoBagCach          chan protocol.Ammo
 	readblock            chan struct{}
 	handshakesign        chan struct{}
-	acksign              chan struct{}
+	acksign              *block.Blocker
+	deferBlocker         *block.Blocker
 	closeChan            chan struct{}
 	loadsign             chan struct{}
 	stopshotsign         chan struct{}
 	errorchan            chan error
-	deferBlocker         block.Blocker
 	mu                   sync.RWMutex
 	bemu                 sync.Mutex
 	dqmu                 sync.RWMutex
@@ -84,15 +84,14 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		bemu:          sync.Mutex{},
 		cachsize:      DEFAULT_INIT_PACKSIZE * 10,
 		packageSize:   DEFAULT_INIT_PACKSIZE,
-		acksign:       make(chan struct{}, 0),
+		acksign:       block.NewBlocker(),
+		deferBlocker:  block.NewBlocker(),
 		ammoBagCach:   make(chan protocol.Ammo, DEFAULT_INIT_SENDCACH),
 		closeChan:     make(chan struct{}, 0),
 		loadsign:      make(chan struct{}, 1),
 		stopshotsign:  make(chan struct{}, 0),
 		errorchan:     make(chan error, 1),
 	}
-
-	sn.deferBlocker.Init()
 
 	sn.writer = sn.write
 	go sn.load()
@@ -122,7 +121,7 @@ func (s *Sniper) healthMonitor() {
 			} else {
 				// timeout
 				s.errorchan <- TIMEOUTERROR
-				close(s.acksign)
+				s.acksign.Close()
 				close(s.readblock)
 				close(s.closeChan)
 
@@ -139,7 +138,7 @@ func (s *Sniper) healthMonitor() {
 func (s *Sniper) load() {
 
 	for {
-
+		//TODO closed
 		ammo, ok := <-s.ammoBagCach
 		if !ok {
 			return
@@ -168,7 +167,7 @@ func (s *Sniper) load() {
 		s.ammoBag = append(s.ammoBag, &ammo)
 
 		if atomic.LoadInt32(&s.shootStatus) == 0 {
-			fmt.Println("load in shot")
+			//fmt.Println("load in shot")
 			go s.shot()
 		}
 		s.mu.Unlock()
@@ -188,13 +187,13 @@ loop:
 
 	if !atomic.CompareAndSwapInt32(&s.shootStatus, status, status|shooting) {
 		//fmt.Println("bad lock")
-		fmt.Println("out")
+		//fmt.Println("out")
 		return
 	}
 
 	select {
 	case <-s.closeChan:
-		fmt.Println("out1")
+		//fmt.Println("out1")
 		return
 	default:
 
@@ -229,7 +228,7 @@ l:
 
 		s.mu.Unlock()
 
-		fmt.Println("out2")
+		//fmt.Println("out2")
 
 		return
 	}
@@ -248,7 +247,8 @@ l:
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[k]), s.aim)
 
-		//fmt.Println(len(s.ammoBag[k].Body))
+		//fmt.Println("send msg ---", string(s.ammoBag[k].Body))
+
 		if err != nil {
 			panic(err)
 		}
@@ -270,7 +270,7 @@ l:
 	select {
 
 	case <-s.timeoutticker.C:
-		fmt.Println("timeout", s.timeout)
+		//fmt.Println("timeout", s.timeout)
 		timeout = timeout * 2
 
 		if s.maxWindows > 1 {
@@ -289,9 +289,9 @@ l:
 
 	case <-s.stopshotsign:
 
-		fmt.Println("out3")
+		//fmt.Println("out3")
 		atomic.AddInt32(&s.maxWindows, 10)
-		fmt.Println(s.maxWindows)
+		//fmt.Println(s.maxWindows)
 
 		return
 
@@ -306,10 +306,7 @@ func (s *Sniper) ack(id uint32) {
 		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
 	}
 
-	select {
-	case s.acksign <- struct{}{}:
-	default:
-	}
+	s.acksign.Pass()
 
 }
 
@@ -321,16 +318,16 @@ func (s *Sniper) ackSender() {
 		id := atomic.LoadUint32(&s.ackId)
 		if id == 0 {
 
-			_, ok := <-s.acksign
-			if !ok {
+			err := s.acksign.Block()
+			if err != nil {
 				return
 			}
 			continue
 
 		}
 
-		fmt.Println("ack id", id)
-		fmt.Println("current id", s.beShotCurrentId)
+		//fmt.Println("ack id", id)
+		//fmt.Println("current id", s.beShotCurrentId)
 		ammo := protocol.Ammo{
 			Id:   id,
 			Kind: protocol.ACK,
@@ -357,9 +354,9 @@ func (s *Sniper) ackSender() {
 
 func (s *Sniper) score(id uint32) {
 
-	fmt.Println("id ", id)
-	fmt.Println("current id", s.currentWindowStartId)
-	fmt.Println("end id", s.currentWindowEndId)
+	//fmt.Println("id ", id)
+	//fmt.Println("current id", s.currentWindowStartId)
+	//fmt.Println("end id", s.currentWindowEndId)
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
 		return
 	}
@@ -410,7 +407,8 @@ func (s *Sniper) score(id uint32) {
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
-	fmt.Println("receive id ", ammo.Id)
+	//fmt.Println("receive id ", ammo.Id)
+	//fmt.Println("receive msg --", string(ammo.Body))
 
 	if ammo.Kind == protocol.OUTOFAMMO {
 		atomic.StoreUint32(&s.ackId, 0)
@@ -465,15 +463,17 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 		nid = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
 	}
 
+	s.ack(nid)
+
+	if s.isClose {
+		return
+	}
 	select {
 
 	case s.readblock <- struct{}{}:
-
 	default:
 
 	}
-
-	s.ack(nid)
 }
 
 func (s *Sniper) Read(b []byte) (n int, err error) {
@@ -483,15 +483,13 @@ loop:
 	s.bemu.Lock()
 	for len(s.beShotAmmoBag) != 0 && s.beShotAmmoBag[0] != nil {
 
-		if s.beShotAmmoBag[0] == nil {
-			break
-		}
+		cpn := copy(b[n:], s.beShotAmmoBag[0].Body)
 
-		n += copy(b[n:], s.beShotAmmoBag[0].Body)
+		n += cpn
 
-		if n == len(b) {
-			if n < len(s.beShotAmmoBag[0].Body) {
-				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[n:]
+		if cpn == len(b) {
+			if cpn < len(s.beShotAmmoBag[0].Body) {
+				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[cpn:]
 			} else {
 				s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
 				s.beShotCurrentId++
@@ -532,6 +530,12 @@ func (s *Sniper) wrap() {
 
 	var skipcount int
 	for {
+		select {
+		case <-s.closeChan:
+			return
+		default:
+
+		}
 
 		s.dqmu.RLock()
 		if len(s.deferSendQueue) >= s.packageSize {
@@ -547,11 +551,13 @@ func (s *Sniper) wrap() {
 			case <-s.closeChan:
 				s.dqmu.Unlock()
 				return
-			case s.ammoBagCach <- protocol.Ammo{
+			default:
+
+			}
+			s.ammoBagCach <- protocol.Ammo{
 				Id:   id - 1,
 				Kind: protocol.NORMAL,
 				Body: s.deferSendQueue[:s.packageSize],
-			}:
 			}
 
 			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
@@ -562,8 +568,9 @@ func (s *Sniper) wrap() {
 		} else if len(s.deferSendQueue) == 0 {
 			s.dqmu.RUnlock()
 
-			s.deferBlocker.Pass()
+			s.deferBlocker.PassB()
 			// give way
+			//time.Sleep(time.Millisecond * 500)
 			runtime.Gosched()
 		} else {
 			s.dqmu.RUnlock()
@@ -645,9 +652,27 @@ loop:
 
 		s.dqmu.RLock()
 		if len(s.deferSendQueue)+len(b) > s.cachsize {
+
+			if len(s.deferSendQueue) > s.cachsize {
+				s.dqmu.RUnlock()
+				// need block
+				err = s.deferBlocker.Block()
+				if err != nil {
+					return 0, err
+				}
+				goto loop
+
+			}
+			vacancy := s.cachsize - len(s.deferSendQueue)
+
 			s.dqmu.RUnlock()
-			// need block
-			s.deferBlocker.Block()
+			s.dqmu.Lock()
+
+			s.deferSendQueue = append(s.deferSendQueue, b[:vacancy]...)
+			b = b[vacancy:]
+
+			s.dqmu.Unlock()
+
 			goto loop
 
 		} else {
@@ -662,6 +687,10 @@ loop:
 }
 
 func (s *Sniper) Close() {
+
+	if s.isClose {
+		return
+	}
 
 	if s.isdefer {
 
@@ -679,8 +708,14 @@ func (s *Sniper) Close() {
 			select {
 
 			case <-s.closeChan:
-				close(s.acksign)
-				close(s.readblock)
+
+				s.deferBlocker.Close()
+				s.acksign.Close()
+				select {
+				case <-s.readblock:
+				default:
+					close(s.readblock)
+				}
 
 			}
 			s.isClose = true
@@ -702,7 +737,7 @@ func (s *Sniper) Close() {
 		select {
 
 		case <-s.closeChan:
-			close(s.acksign)
+			s.acksign.Close()
 			close(s.readblock)
 		}
 
