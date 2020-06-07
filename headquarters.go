@@ -2,6 +2,7 @@ package sharpshooter
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
@@ -152,7 +153,21 @@ loop:
 	return nil
 }
 
+func (h *headquarters) clear() {
+
+	for {
+		time.Sleep(time.Second * 5)
+
+		for k, v := range h.Snipers {
+			if v.isClose {
+				delete(h.Snipers, k)
+			}
+		}
+
+	}
+}
 func (h *headquarters) monitor() {
+	go h.clear()
 	//
 	//defer func() {
 	//	if e := recover(); e != nil {
@@ -266,23 +281,25 @@ func (h *headquarters) monitor() {
 
 			if msg.Id == sn.beShotCurrentId {
 
-				delete(h.Snipers, remote.String())
-
-				sn.isClose = true
-				sn.acksign.Close()
-				sn.deferBlocker.Close()
-				close(sn.ammoBagCach)
+				sn.beShotCurrentId++
+				//sn.isClose = true
 
 				sn.ack(msg.Id)
 
 				go func() {
 				l:
-					if len(sn.ammoBagCach) == 0 {
+
+					sn.bemu.Lock()
+					//fmt.Println(len(sn.ammoBagCach))
+					if len(sn.deferSendQueue) == 0 {
 
 						sn.isClose = true
+						sn.acksign.Close()
+						fmt.Println("close!")
 						close(sn.closeChan)
 						//close(sn.acksign)
-
+						sn.bemu.Unlock()
+						delete(h.Snipers, remote.String())
 						_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 							Kind: protocol.CLOSERESP,
 							Body: nil,
@@ -292,6 +309,8 @@ func (h *headquarters) monitor() {
 						}
 
 					} else {
+
+						sn.bemu.Unlock()
 
 						runtime.Gosched()
 						goto l
@@ -307,6 +326,7 @@ func (h *headquarters) monitor() {
 			if !ok {
 				continue
 			}
+			fmt.Println("closeresponse")
 			close(sn.closeChan)
 
 		case protocol.HEALTHCHECK:

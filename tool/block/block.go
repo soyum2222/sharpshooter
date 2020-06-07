@@ -2,6 +2,7 @@ package block
 
 import (
 	"errors"
+	"time"
 )
 
 var noblock = errors.New("no any block")
@@ -29,8 +30,10 @@ func (b *Blocker) Block() (err error) {
 	select {
 	case b.c <- struct{}{}:
 
-	case <-b.close:
-		return closed
+	case _, ok := <-b.close:
+		if !ok {
+			return closed
+		}
 	}
 	return
 }
@@ -45,9 +48,16 @@ func (b *Blocker) Pass() error {
 	}
 }
 
-func (b *Blocker) PassB() error {
+func (b *Blocker) PassBT(duration time.Duration) error {
 
-	<-b.c
+	ticker := time.NewTicker(duration)
+	select {
+	case <-ticker.C:
+		ticker.Stop()
+		return nil
+	case <-b.c:
+
+	}
 	return nil
 }
 

@@ -3,6 +3,7 @@ package sharpshooter
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
@@ -19,11 +20,11 @@ const (
 
 const (
 	DEFAULT_INIT_SENDWIND                      = 32
-	DEFAULT_INIT_RECEWIND                      = 1024
+	DEFAULT_INIT_RECEWIND                      = 4 * 1024
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
-	DEFAULT_INIT_SENDCACH                      = 0xff
+	DEFAULT_INIT_SENDCACH                      = 1024 * 1024
 	DEFAULT_INIT_MIN_TIMEOUT                   = int64(1000 * time.Millisecond)
 )
 
@@ -43,6 +44,7 @@ type Sniper struct {
 	currentWindowEndId   uint32
 	shootStatus          int32
 	ackId                uint32
+	wrapFlag             int32
 	packageSize          int
 	cachsize             int
 	timeout              int64
@@ -82,7 +84,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		maxWindows:    DEFAULT_INIT_SENDWIND,
 		mu:            sync.RWMutex{},
 		bemu:          sync.Mutex{},
-		cachsize:      DEFAULT_INIT_PACKSIZE * 10,
+		cachsize:      DEFAULT_INIT_PACKSIZE * 1024 * 4,
 		packageSize:   DEFAULT_INIT_PACKSIZE,
 		acksign:       block.NewBlocker(),
 		deferBlocker:  block.NewBlocker(),
@@ -92,7 +94,6 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		stopshotsign:  make(chan struct{}, 0),
 		errorchan:     make(chan error, 1),
 	}
-
 	sn.writer = sn.write
 	go sn.load()
 	return sn
@@ -123,12 +124,13 @@ func (s *Sniper) healthMonitor() {
 				s.errorchan <- TIMEOUTERROR
 				s.acksign.Close()
 				close(s.readblock)
+				fmt.Println("time out")
 				close(s.closeChan)
 
 				return
 			}
 
-		case <-s.closeChan:
+		case _, _ = <-s.closeChan:
 			return
 		}
 	}
@@ -139,38 +141,40 @@ func (s *Sniper) load() {
 
 	for {
 		//TODO closed
-		ammo, ok := <-s.ammoBagCach
-		if !ok {
-			return
-		}
-		s.mu.Lock()
-	loop:
-		if len(s.ammoBag) >= int(s.maxWindows)*2 {
+		select {
+		case ammo := <-s.ammoBagCach:
+			s.mu.Lock()
+		loop:
+			if len(s.ammoBag) >= int(s.maxWindows)*2 {
+
+				if atomic.LoadInt32(&s.shootStatus) == 0 {
+					go s.shot()
+				}
+
+				s.mu.Unlock()
+				select {
+				case <-s.loadsign:
+				case <-s.closeChan:
+					return
+
+				}
+
+				s.mu.Lock()
+				goto loop
+
+			}
+
+			s.ammoBag = append(s.ammoBag, &ammo)
 
 			if atomic.LoadInt32(&s.shootStatus) == 0 {
+				//fmt.Println("load in shot")
 				go s.shot()
 			}
-
 			s.mu.Unlock()
-			select {
-			case <-s.loadsign:
-			case <-s.closeChan:
-				return
-
-			}
-
-			s.mu.Lock()
-			goto loop
+		case _, _ = <-s.closeChan:
+			return
 
 		}
-
-		s.ammoBag = append(s.ammoBag, &ammo)
-
-		if atomic.LoadInt32(&s.shootStatus) == 0 {
-			//fmt.Println("load in shot")
-			go s.shot()
-		}
-		s.mu.Unlock()
 
 	}
 }
@@ -218,7 +222,9 @@ l:
 
 		atomic.StoreInt32(&s.shootStatus, 0)
 
-		s.timeoutticker.Stop()
+		if s.timeoutticker != nil {
+			s.timeoutticker.Stop()
+		}
 
 		_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 			Id:   0,
@@ -288,6 +294,7 @@ l:
 		goto loop
 
 	case <-s.stopshotsign:
+		fmt.Println(s.maxWindows)
 
 		//fmt.Println("out3")
 		atomic.AddInt32(&s.maxWindows, 10)
@@ -312,7 +319,7 @@ func (s *Sniper) ack(id uint32) {
 
 func (s *Sniper) ackSender() {
 
-	timer := time.NewTimer(time.Millisecond * 200)
+	timer := time.NewTimer(time.Millisecond * 20)
 	for {
 
 		id := atomic.LoadUint32(&s.ackId)
@@ -513,7 +520,7 @@ loop:
 		case <-s.readblock:
 			goto loop
 
-		case <-s.closeChan:
+		case _, _ = <-s.closeChan:
 			return 0, CLOSEERROR
 
 		case err := <-s.errorchan:
@@ -529,6 +536,10 @@ loop:
 func (s *Sniper) wrap() {
 
 	var skipcount int
+
+	s.bemu.Lock()
+	defer s.bemu.Unlock()
+
 	for {
 		select {
 		case <-s.closeChan:
@@ -537,43 +548,30 @@ func (s *Sniper) wrap() {
 
 		}
 
-		s.dqmu.RLock()
 		if len(s.deferSendQueue) >= s.packageSize {
-			s.dqmu.RUnlock()
 
 			skipcount = 0
 
 			id := atomic.AddUint32(&s.sendid, 1)
 
-			s.dqmu.Lock()
-
 			select {
 			case <-s.closeChan:
-				s.dqmu.Unlock()
 				return
-			default:
 
-			}
-			s.ammoBagCach <- protocol.Ammo{
+			case s.ammoBagCach <- protocol.Ammo{
 				Id:   id - 1,
 				Kind: protocol.NORMAL,
 				Body: s.deferSendQueue[:s.packageSize],
+			}:
+
 			}
 
 			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
-			s.dqmu.Unlock()
-
-			s.deferBlocker.Pass()
 
 		} else if len(s.deferSendQueue) == 0 {
-			s.dqmu.RUnlock()
+			return
 
-			s.deferBlocker.PassB()
-			// give way
-			//time.Sleep(time.Millisecond * 500)
-			runtime.Gosched()
 		} else {
-			s.dqmu.RUnlock()
 
 			if skipcount < 3 {
 				skipcount++
@@ -584,11 +582,10 @@ func (s *Sniper) wrap() {
 
 				id := atomic.AddUint32(&s.sendid, 1)
 
-				s.dqmu.Lock()
 				select {
 				case <-s.closeChan:
-					s.dqmu.Unlock()
 					return
+
 				case s.ammoBagCach <- protocol.Ammo{
 					Id:   id - 1,
 					Kind: protocol.NORMAL,
@@ -597,8 +594,6 @@ func (s *Sniper) wrap() {
 				}
 
 				s.deferSendQueue = s.deferSendQueue[:0]
-				s.dqmu.Unlock()
-				s.deferBlocker.Pass()
 			}
 
 		}
@@ -636,11 +631,12 @@ func (s *Sniper) Write(b []byte) (n int, err error) {
 func (s *Sniper) OpenDeferSend() {
 	s.writer = s.deferSend
 	s.isdefer = true
-	go s.wrap()
 }
 
 func (s *Sniper) deferSend(b []byte) (n int, err error) {
 
+	// short write
+	n = len(b)
 loop:
 	select {
 	case <-s.closeChan:
@@ -650,37 +646,50 @@ loop:
 
 	default:
 
-		s.dqmu.RLock()
-		if len(s.deferSendQueue)+len(b) > s.cachsize {
+		if s.isClose {
+			return 0, CLOSEERROR
+		}
 
-			if len(s.deferSendQueue) > s.cachsize {
-				s.dqmu.RUnlock()
-				// need block
-				err = s.deferBlocker.Block()
-				if err != nil {
-					return 0, err
-				}
+		s.bemu.Lock()
+		if len(s.deferSendQueue)+len(b) > s.cachsize {
+			// here is full
+			if len(s.deferSendQueue) >= s.cachsize {
+
+				// right now run wrap
+
+				s.bemu.Unlock()
+				s.wrap()
 				goto loop
 
 			}
 			vacancy := s.cachsize - len(s.deferSendQueue)
 
-			s.dqmu.RUnlock()
-			s.dqmu.Lock()
-
 			s.deferSendQueue = append(s.deferSendQueue, b[:vacancy]...)
 			b = b[vacancy:]
 
-			s.dqmu.Unlock()
-
+			// right now run wrap
+			s.bemu.Unlock()
+			s.wrap()
 			goto loop
 
 		} else {
-			s.dqmu.RUnlock()
-			s.dqmu.Lock()
+
+			// here i want defer fun wrap , let deferSendQueue as much as possible
+			// make a rand , has 60% chance defer wrap
+
 			s.deferSendQueue = append(s.deferSendQueue, b...)
-			s.dqmu.Unlock()
-			return len(b), nil
+			s.bemu.Unlock()
+			if rand.Int31n(3) == 0 {
+				s.wrap()
+			} else {
+				//go func() {
+				//	time.Sleep(time.Millisecond * 100)
+				//	s.wrap()
+				//}()
+				s.wrap()
+			}
+			return n, nil
+
 		}
 	}
 
@@ -694,7 +703,32 @@ func (s *Sniper) Close() {
 
 	if s.isdefer {
 
+		var try int
 	loop:
+		try++
+
+		if try == 10 {
+
+			s.ammoBagCach <- protocol.Ammo{
+				Id:   atomic.LoadUint32(&s.sendid),
+				Kind: protocol.CLOSE,
+				Body: nil,
+			}
+
+			select {
+			case <-s.closeChan:
+				s.deferBlocker.Close()
+				s.acksign.Close()
+				select {
+				case <-s.readblock:
+				default:
+					close(s.readblock)
+				}
+			}
+
+			s.isClose = true
+		}
+
 		s.mu.Lock()
 		if len(s.ammoBag) == 0 && len(s.deferSendQueue) == 0 {
 			s.mu.Unlock()
