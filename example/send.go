@@ -2,26 +2,19 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"sharpshooter"
-	"testing"
 	"time"
 )
 
-func TestSend(t *testing.T) {
+func main() {
 	go http.ListenAndServe(":8888", nil)
 
 	begin := time.Now()
 
-	addr1, err := net.ResolveUDPAddr("udp", ":8890")
-	if err != nil {
-		panic(err)
-	}
-
-	conn, err := sharpshooter.Dial(addr1)
+	conn, err := sharpshooter.Dial(":8890")
 	if err != nil {
 		println(err)
 	}
@@ -38,7 +31,6 @@ func TestSend(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-
 	b := make([]byte, 1024)
 	var count int64
 	for i := 0; ; i++ {

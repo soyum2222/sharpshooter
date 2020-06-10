@@ -64,6 +64,7 @@ func NewHeadquarters() *headquarters {
 func (h *headquarters) Accept() (*Sniper, error) {
 	sn := <-h.accept
 	go sn.ackSender()
+	go sn.shooter()
 	return sn, nil
 }
 
@@ -147,6 +148,7 @@ loop:
 	h.Snipers[addr.String()] = sn
 
 	go sn.ackSender()
+	go sn.shooter()
 	sn.healthTimer = time.NewTimer(time.Second * 3)
 	go sn.healthMonitor()
 
@@ -291,7 +293,7 @@ func (h *headquarters) monitor() {
 
 					sn.bemu.Lock()
 					//fmt.Println(len(sn.ammoBagCach))
-					if len(sn.deferSendQueue) == 0 {
+					if len(sn.ammoBag) == 0 {
 
 						sn.isClose = true
 						sn.acksign.Close()
@@ -334,9 +336,10 @@ func (h *headquarters) monitor() {
 			if !ok {
 				continue
 			}
-			sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+			_, err = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 				Kind: protocol.HEALTCHRESP,
 			}), sn.aim)
+			fmt.Println(err)
 
 		case protocol.HEALTCHRESP:
 			sn, ok := h.Snipers[remote.String()]

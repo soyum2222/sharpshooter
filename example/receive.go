@@ -11,7 +11,7 @@ import (
 
 func main() {
 
-	go http.ListenAndServe(":9999", nil)
+	go http.ListenAndServe(":9998", nil)
 
 	addr := &net.UDPAddr{
 		IP:   nil,
@@ -35,7 +35,6 @@ func main() {
 
 	b := make([]byte, 1024)
 	for i := 0; ; i++ {
-		fmt.Println(i)
 		n, err := sniper.Read(b)
 		if err != nil {
 			fmt.Println(err)
