@@ -17,8 +17,10 @@ const (
 	waittimeout
 )
 
+var Flow int
+
 const (
-	DEFAULT_INIT_SENDWIND                      = 32
+	DEFAULT_INIT_SENDWIND                      = 128
 	DEFAULT_INIT_RECEWIND                      = 1024
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
@@ -44,11 +46,13 @@ type Sniper struct {
 	shootStatus          int32
 	ackId                uint32
 	wrapFlag             int32
+	index                uint32
 	packageSize          int
 	cachsize             int
 	timeout              int64
 	shootTime            int64
 	timeFlag             int64
+	lostCount            int
 	writer               func(p []byte) (n int, err error)
 	aim                  *net.UDPAddr
 	conn                 *net.UDPConn
@@ -306,7 +310,9 @@ func (s *Sniper) healthMonitor() {
 
 func (s *Sniper) shoot() {
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
-		s.mu.RLock()
+		s.mu.Lock()
+
+		s.flush()
 
 		for k, _ := range s.ammoBag {
 
@@ -320,19 +326,34 @@ func (s *Sniper) shoot() {
 
 			s.currentWindowEndId = s.currentWindowStartId + uint32(k)
 
-			_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[k]), s.aim)
+			b := protocol.Marshal(*s.ammoBag[k])
+			_, err := s.conn.WriteToUDP(b, s.aim)
 
 			if err != nil {
 				panic(err)
 			}
 
+			Flow += len(b)
+
 		}
-		s.mu.RUnlock()
+		s.mu.Unlock()
 
 		atomic.StoreInt32(&s.shootStatus, 0)
 	}
 
 	s.timeoutTimer.Reset(time.Duration(s.timeout) * time.Nanosecond)
+}
+
+func (s *Sniper) flush() {
+	s.ammoBag = s.ammoBag[s.index:]
+	atomic.AddUint32(&s.currentWindowStartId, atomic.LoadUint32(&s.index))
+
+	if s.currentWindowStartId >= s.currentWindowEndId {
+		s.maxWindows += 10
+	}
+
+	atomic.StoreUint32(&s.index, 0)
+
 }
 
 func (s *Sniper) shooter() {
@@ -410,9 +431,6 @@ func (s *Sniper) ackSender() {
 
 func (s *Sniper) score(id uint32) {
 
-	//fmt.Println("id ", id)
-	//fmt.Println("current id", s.currentWindowStartId)
-	//fmt.Println("end id", s.currentWindowEndId)
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
 		return
 	}
@@ -424,51 +442,18 @@ func (s *Sniper) score(id uint32) {
 	}
 
 	if index == 0 {
-		return
-	}
+		s.lostCount++
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	//if index > int(s.maxWindows) {
-	//	s.ammoBag = s.ammoBag[index:]
-	//	atomic.AddUint32(&s.currentWindowStartId, uint32(index))
-	//	select {
-	//	case s.loadsign <- struct{}{}:
-	//	default:
-	//	}
-	//	return
-	//}
-
-	if index >= len(s.ammoBag) {
-		atomic.AddUint32(&s.currentWindowStartId, uint32(index))
-		_ = s.writerBlocker.Pass()
-		return
-	}
-
-	ackAttempts := s.ammoBag[index].AckAdd()
-	if len(s.ammoBag) > index && ackAttempts > 3 && s.currentWindowStartId != s.currentWindowEndId {
-		_, err := s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
-		if err != nil {
-			panic(err)
+		if s.lostCount > 3 {
+			s.shoot()
 		}
-		if ackAttempts > 6 {
-			atomic.StoreInt32(&s.maxWindows, int32(float64(s.maxWindows)/1.5))
-		}
-
 		return
 	}
-
-	s.ammoBag = s.ammoBag[index:]
-
-	atomic.AddUint32(&s.currentWindowStartId, uint32(index))
 
 	_ = s.writerBlocker.Pass()
 
-	if s.currentWindowStartId >= s.currentWindowEndId {
-		s.maxWindows += 10
-		fmt.Println(s.maxWindows)
-	}
+	s.lostCount = 0
+	atomic.StoreUint32(&s.index, uint32(index))
 
 }
 

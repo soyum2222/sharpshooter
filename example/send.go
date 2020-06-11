@@ -60,4 +60,5 @@ func main() {
 	end := time.Now()
 
 	fmt.Println(end.Unix() - begin.Unix())
+	fmt.Println(sharpshooter.Flow)
 }
