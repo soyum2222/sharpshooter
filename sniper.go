@@ -430,13 +430,19 @@ func (s *Sniper) score(id uint32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if index > int(s.maxWindows) {
-		s.ammoBag = s.ammoBag[index:]
+	//if index > int(s.maxWindows) {
+	//	s.ammoBag = s.ammoBag[index:]
+	//	atomic.AddUint32(&s.currentWindowStartId, uint32(index))
+	//	select {
+	//	case s.loadsign <- struct{}{}:
+	//	default:
+	//	}
+	//	return
+	//}
+
+	if index >= len(s.ammoBag) {
 		atomic.AddUint32(&s.currentWindowStartId, uint32(index))
-		select {
-		case s.loadsign <- struct{}{}:
-		default:
-		}
+		_ = s.writerBlocker.Pass()
 		return
 	}
 
@@ -459,10 +465,10 @@ func (s *Sniper) score(id uint32) {
 
 	_ = s.writerBlocker.Pass()
 
-	//if s.currentWindowStartId >= s.currentWindowEndId {
-	//	s.maxWindows += 10
-	//	fmt.Println(s.maxWindows)
-	//}
+	if s.currentWindowStartId >= s.currentWindowEndId {
+		s.maxWindows += 10
+		fmt.Println(s.maxWindows)
+	}
 
 }
 
@@ -691,8 +697,8 @@ func (s *Sniper) deferSend(b []byte) (n int, err error) {
 	// It's acceptable to compete here
 	if len(s.ammoBag) >= int(s.maxWindows) {
 
-		s.maxWindows += 10
-		fmt.Println(s.maxWindows)
+		//s.maxWindows += 10
+		//fmt.Println(s.maxWindows)
 
 		s.shoot()
 	}
