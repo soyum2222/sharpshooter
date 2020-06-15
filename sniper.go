@@ -43,6 +43,7 @@ type Sniper struct {
 	beShotCurrentId      uint32
 	currentWindowStartId uint32
 	currentWindowEndId   uint32
+	passId               uint32
 	shootStatus          int32
 	ackId                uint32
 	wrapFlag             int32
@@ -146,6 +147,7 @@ func (s *Sniper) shoot() {
 
 		s.flush()
 
+		var currentWindowEndId uint32
 		for k, _ := range s.ammoBag {
 
 			if s.ammoBag[k] == nil {
@@ -156,7 +158,7 @@ func (s *Sniper) shoot() {
 				break
 			}
 
-			s.currentWindowEndId = s.ammoBag[k].Id
+			currentWindowEndId = s.ammoBag[k].Id
 
 			b := protocol.Marshal(*s.ammoBag[k])
 			_, err := s.conn.WriteToUDP(b, s.aim)
@@ -168,6 +170,9 @@ func (s *Sniper) shoot() {
 			Flow += len(b)
 
 		}
+
+		atomic.StoreUint32(&s.currentWindowEndId, currentWindowEndId)
+
 		s.mu.Unlock()
 
 		atomic.StoreInt32(&s.shootStatus, 0)
@@ -277,7 +282,7 @@ func (s *Sniper) score(id uint32) {
 
 	index := int(id) - int(atomic.LoadUint32(&s.currentWindowStartId))
 
-	if s.currentWindowEndId <= id {
+	if atomic.LoadUint32(&s.passId) <= id {
 		_ = s.writerBlocker.Pass()
 	}
 
@@ -375,9 +380,11 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 	if s.isClose {
 		return
 	}
+
 	select {
 
 	case s.readblock <- struct{}{}:
+
 	default:
 
 	}
@@ -539,14 +546,6 @@ func (s *Sniper) deferSend(b []byte) (n int, err error) {
 
 	// It's acceptable to compete here
 	s.mu.Lock()
-	if len(s.ammoBag) >= int(s.maxWindows) {
-		s.mu.Unlock()
-		s.shoot()
-	} else {
-		s.mu.Unlock()
-	}
-
-	s.mu.Lock()
 
 	// If possible , it is better to the data append on previous ammo
 	ammoLength := len(s.ammoBag)
@@ -596,12 +595,26 @@ loop:
 
 	if len(s.ammoBag) > int(s.maxWindows) {
 		needblock = true
+		s.mu.Unlock()
+		s.shoot()
+		s.mu.Lock()
 	}
 
-	s.mu.Unlock()
-
 	if needblock {
+
+		l := len(s.ammoBag)
+		s.mu.Unlock()
+
+		// passId is last one ammo id
+		atomic.StoreUint32(&s.passId, s.ammoBag[l-1].Id)
+
+		// if  ammunition is out ,then pass this block
 		s.writerBlocker.Block()
+
+	} else {
+
+		s.mu.Unlock()
+
 	}
 
 	return
