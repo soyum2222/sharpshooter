@@ -25,7 +25,7 @@ const (
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
-	DEFAULT_INIT_SENDCACH                      = 1024
+	DEFAULT_INIT_SENDCACH                      = 1 << 20
 	DEFAULT_INIT_MIN_TIMEOUT                   = int64(1000 * time.Millisecond)
 )
 
@@ -43,7 +43,6 @@ type Sniper struct {
 	beShotCurrentId      uint32
 	currentWindowStartId uint32
 	currentWindowEndId   uint32
-	passId               uint32
 	shootStatus          int32
 	ackId                uint32
 	wrapFlag             int32
@@ -55,6 +54,8 @@ type Sniper struct {
 	timeFlag             int64
 	lostCount            int
 	latestAckId          uint32
+	sendCacheSize        int64
+	sendCache            []byte
 	writer               func(p []byte) (n int, err error)
 	aim                  *net.UDPAddr
 	conn                 *net.UDPConn
@@ -92,11 +93,12 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr, timeout int64) *Sniper {
 		packageSize:   DEFAULT_INIT_PACKSIZE,
 		acksign:       block.NewBlocker(),
 		writerBlocker: block.NewBlocker(),
-		ammoBagCach:   make(chan protocol.Ammo, DEFAULT_INIT_SENDCACH),
 		closeChan:     make(chan struct{}, 0),
 		loadsign:      make(chan struct{}, 1),
 		stopshotsign:  make(chan struct{}, 0),
 		errorchan:     make(chan error, 1),
+		sendCache:     make([]byte, 0),
+		sendCacheSize: DEFAULT_INIT_SENDCACH,
 	}
 	sn.writer = sn.write
 	return sn
@@ -147,7 +149,10 @@ func (s *Sniper) shoot() {
 
 		s.flush()
 
+		s.wrap()
+
 		var currentWindowEndId uint32
+
 		for k, _ := range s.ammoBag {
 
 			if s.ammoBag[k] == nil {
@@ -186,9 +191,15 @@ func (s *Sniper) flush() {
 		return
 	}
 	s.ammoBag = s.ammoBag[s.index:]
+
 	if len(s.ammoBag) == 0 {
+		atomic.AddUint32(&s.currentWindowStartId, s.index)
+		if s.currentWindowStartId >= s.currentWindowEndId {
+			s.maxWindows += 10
+		}
 		return
 	}
+
 	atomic.StoreUint32(&s.currentWindowStartId, s.ammoBag[0].Id)
 
 	if s.currentWindowStartId >= s.currentWindowEndId {
@@ -282,10 +293,6 @@ func (s *Sniper) score(id uint32) {
 
 	index := int(id) - int(atomic.LoadUint32(&s.currentWindowStartId))
 
-	if atomic.LoadUint32(&s.passId) <= id {
-		_ = s.writerBlocker.Pass()
-	}
-
 	if index > len(s.ammoBag) {
 		return
 	}
@@ -314,6 +321,11 @@ func (s *Sniper) score(id uint32) {
 
 	} else {
 		s.latestAckId = id
+	}
+
+	// now send window is send clean
+	if id >= atomic.LoadUint32(&s.currentWindowEndId) {
+		s.shoot()
 	}
 
 	return
@@ -440,73 +452,50 @@ loop:
 	return
 }
 
-//func (s *Sniper) wrap() {
-//
-//	var skipcount int
-//
-//	s.bemu.Lock()
-//	defer s.bemu.Unlock()
-//
-//	for {
-//		select {
-//		case <-s.closeChan:
-//			return
-//		default:
-//
-//		}
-//
-//		if len(s.deferSendQueue) >= s.packageSize {
-//
-//			skipcount = 0
-//
-//			id := atomic.AddUint32(&s.sendid, 1)
-//
-//			select {
-//			case <-s.closeChan:
-//				return
-//
-//			case s.ammoBagCach <- protocol.Ammo{
-//				Id:   id - 1,
-//				Kind: protocol.NORMAL,
-//				Body: s.deferSendQueue[:s.packageSize],
-//			}:
-//
-//			}
-//
-//			s.deferSendQueue = s.deferSendQueue[s.packageSize:]
-//
-//		} else if len(s.deferSendQueue) == 0 {
-//			return
-//
-//		} else {
-//
-//			if skipcount < 3 {
-//				skipcount++
-//				time.Sleep(time.Millisecond * 50)
-//				continue
-//			} else {
-//				skipcount = 0
-//
-//				id := atomic.AddUint32(&s.sendid, 1)
-//
-//				select {
-//				case <-s.closeChan:
-//					return
-//
-//				case s.ammoBagCach <- protocol.Ammo{
-//					Id:   id - 1,
-//					Kind: protocol.NORMAL,
-//					Body: s.deferSendQueue,
-//				}:
-//				}
-//
-//				s.deferSendQueue = s.deferSendQueue[:0]
-//			}
-//
-//		}
-//	}
-//
-//}
+func (s *Sniper) wrap() {
+
+	remain := s.maxWindows - int32(len(s.ammoBag))
+
+	for i := 0; i < int(remain); i++ {
+
+		l := len(s.sendCache)
+
+		if l == 0 {
+			return
+		}
+
+		// anchor is mark sendCache current op index
+		var anchor int
+
+		if l < s.packageSize {
+			anchor = l
+		} else {
+			anchor = s.packageSize
+		}
+
+		body := s.sendCache[:anchor]
+
+		b := make([]byte, len(body))
+
+		copy(b, body)
+
+		s.sendCache = s.sendCache[anchor:]
+
+		id := atomic.AddUint32(&s.sendid, 1)
+
+		ammo := protocol.Ammo{
+			Id:   id - 1,
+			Kind: protocol.NORMAL,
+			Body: b,
+		}
+
+		s.ammoBag = append(s.ammoBag, &ammo)
+
+		_ = s.writerBlocker.Pass()
+
+	}
+
+}
 
 func (s *Sniper) write(b []byte) (n int, err error) {
 
@@ -543,81 +532,28 @@ func (s *Sniper) OpenDeferSend() {
 func (s *Sniper) deferSend(b []byte) (n int, err error) {
 
 	n = len(b)
-
-	// It's acceptable to compete here
 	s.mu.Lock()
-
-	// If possible , it is better to the data append on previous ammo
-	ammoLength := len(s.ammoBag)
-
-	if ammoLength > 0 {
-		// If previous ammo is not full ,then append it
-		ammo := s.ammoBag[ammoLength-1]
-
-		remain := s.packageSize - len(ammo.Body)
-
-		// remain > b.len , put of all b to ammo
-		if remain > n {
-			ammo.Body = append(ammo.Body, b...)
-			b = nil
-			s.mu.Unlock()
-			return n, nil
-		} else {
-			ammo.Body = append(ammo.Body, b[:remain]...)
-			b = b[remain:]
-		}
-	}
-
 loop:
-	id := atomic.AddUint32(&s.sendid, 1)
-	// But here no
-	if len(b) > s.packageSize {
+	remain := s.sendCacheSize - int64(len(s.sendCache))
 
-		s.ammoBag = append(s.ammoBag, &protocol.Ammo{
-			Id:   id - 1,
-			Kind: protocol.NORMAL,
-			Body: b[:s.packageSize],
-		})
-
-		b = b[s.packageSize:]
-
-		goto loop
-
-	}
-
-	s.ammoBag = append(s.ammoBag, &protocol.Ammo{
-		Id:   id - 1,
-		Kind: protocol.NORMAL,
-		Body: append([]byte{}, b...),
-	})
-
-	var needblock bool
-
-	if len(s.ammoBag) > int(s.maxWindows) {
-		needblock = true
+	if remain <= 0 {
 		s.mu.Unlock()
-		s.shoot()
-		s.mu.Lock()
-	}
-
-	if needblock {
-
-		l := len(s.ammoBag)
-		s.mu.Unlock()
-
-		// passId is last one ammo id
-		atomic.StoreUint32(&s.passId, s.ammoBag[l-1].Id)
-
-		// if  ammunition is out ,then pass this block
 		s.writerBlocker.Block()
-
-	} else {
-
-		s.mu.Unlock()
-
+		s.mu.Lock()
+		goto loop
 	}
 
-	return
+	if remain >= int64(len(b)) {
+		s.sendCache = append(s.sendCache, b...)
+		s.mu.Unlock()
+		return
+	}
+
+	s.sendCache = append(s.sendCache, b[:remain]...)
+
+	b = b[remain:]
+
+	goto loop
 
 }
 

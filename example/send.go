@@ -14,9 +14,9 @@ func main() {
 
 	begin := time.Now()
 
-	conn, err := sharpshooter.Dial(":8890")
+	conn, err := sharpshooter.Dial("127.0.0.01:8890")
 	if err != nil {
-		println(err)
+		panic(err)
 	}
 	conn.OpenDeferSend()
 

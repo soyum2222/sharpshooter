@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 )
 
 var client *Sniper
@@ -61,4 +62,50 @@ func TestSendAndReceive(t *testing.T) {
 	}
 
 	server.Close()
+}
+
+func TestSniper_DeferSend(t *testing.T) {
+
+	sn := NewSniper(nil, nil, 100)
+
+	sn.sendCacheSize = 1
+
+	go func() {
+
+		for {
+
+			time.Sleep(time.Second)
+			sn.mu.Lock()
+			fmt.Println(sn.sendCache)
+			sn.sendCache = sn.sendCache[len(sn.sendCache):]
+			sn.mu.Unlock()
+			sn.writerBlocker.Pass()
+
+		}
+
+	}()
+
+	sn.deferSend([]byte{uint8(1), uint8(2), uint8(3)})
+
+	fmt.Println(sn.sendCache)
+
+}
+
+func TestWarp(t *testing.T) {
+
+	sn := NewSniper(nil, nil, 100)
+
+	for i := 0; i < 100; i++ {
+		sn.deferSend([]byte{uint8(i)})
+	}
+
+	sn.packageSize = 1
+
+	sn.wrap()
+
+	fmt.Println(len(sn.ammoBag))
+	if len(sn.ammoBag) != 100 {
+		t.Fail()
+	}
+
 }
