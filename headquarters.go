@@ -91,7 +91,9 @@ func (h *headquarters) Dial(addr *net.UDPAddr) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	sn := NewSniper(conn, addr, time.Now().UnixNano())
+	sn := NewSniper(conn, addr)
+
+	//sn.rtt = time.Now().UnixNano()
 
 	// receive second handshake
 	c := make(chan error, 1)
@@ -132,11 +134,11 @@ loop:
 		}
 	}
 
-	sn.timeout = (time.Now().UnixNano() - sn.timeout)
-
-	if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
-		sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
-	}
+	//sn.rtt = (time.Now().UnixNano() - sn.rtt)
+	////
+	//if sn.rtt < DEFAULT_INIT_MIN_TIMEOUT {
+	//	sn.rtt = DEFAULT_INIT_MIN_TIMEOUT
+	//}
 
 	ammo.Kind = protocol.THIRDHANDSHACK
 
@@ -202,7 +204,7 @@ func (h *headquarters) monitor() {
 
 		case protocol.FIRSTHANDSHACK:
 
-			sn := NewSniper(h.conn, remote.(*net.UDPAddr), time.Now().UnixNano())
+			sn := NewSniper(h.conn, remote.(*net.UDPAddr))
 
 			h.Snipers[remote.String()] = sn
 
@@ -257,13 +259,12 @@ func (h *headquarters) monitor() {
 				continue
 			}
 
-			sn.timeout = time.Now().UnixNano() - sn.timeout
+			//sn.rtt = time.Now().UnixNano() - sn.rtt
+			//if sn.rtt < DEFAULT_INIT_MIN_TIMEOUT {
+			//	sn.rtt = DEFAULT_INIT_MIN_TIMEOUT
+			//}
 
-			if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
-				sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
-			}
-
-			sn.healthTimer = time.NewTimer(time.Second * 2)
+			sn.healthTimer = time.NewTimer(time.Second * 3)
 			go sn.healthMonitor()
 
 			select {
@@ -295,7 +296,10 @@ func (h *headquarters) monitor() {
 					//fmt.Println(len(sn.ammoBagCach))
 					if len(sn.ammoBag) == 0 {
 
+						sn.writerBlocker.Close()
+
 						sn.isClose = true
+
 						sn.acksign.Close()
 						fmt.Println("close!")
 						close(sn.closeChan)
@@ -339,7 +343,6 @@ func (h *headquarters) monitor() {
 			_, err = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 				Kind: protocol.HEALTCHRESP,
 			}), sn.aim)
-			fmt.Println(err)
 
 		case protocol.HEALTCHRESP:
 			sn, ok := h.Snipers[remote.String()]
@@ -348,11 +351,11 @@ func (h *headquarters) monitor() {
 			}
 
 			atomic.StoreInt32(&sn.healthTryCount, 0)
+
 			t := time.Now().UnixNano()
-			sn.timeout = t - sn.timeFlag
-			if sn.timeout < DEFAULT_INIT_MIN_TIMEOUT {
-				sn.timeout = DEFAULT_INIT_MIN_TIMEOUT
-			}
+
+			// new rtt 15% come form new value , 85% come form old value
+			atomic.StoreInt64(&sn.rtt, int64(0.125*float64(t-sn.timeFlag)+(1-0.125)*float64(atomic.LoadInt64(&sn.rtt))))
 
 		default:
 			sn, ok := h.Snipers[remote.String()]
@@ -360,7 +363,7 @@ func (h *headquarters) monitor() {
 				continue
 			}
 
-			sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
+			//sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 
 			sn.beShot(&msg)
 

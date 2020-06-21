@@ -14,7 +14,7 @@ func main() {
 
 	begin := time.Now()
 
-	conn, err := sharpshooter.Dial("127.0.0.01:8890")
+	conn, err := sharpshooter.Dial("192.168.1.2:8890")
 	if err != nil {
 		panic(err)
 	}
@@ -25,6 +25,7 @@ func main() {
 		panic(err)
 	}
 	size := info.Size()
+	fmt.Println(size)
 
 	file, err := os.Open("./source")
 

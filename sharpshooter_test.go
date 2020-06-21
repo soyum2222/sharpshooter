@@ -3,6 +3,7 @@ package sharpshooter
 import (
 	"fmt"
 	"net"
+	"sharpshooter/protocol"
 	"testing"
 	"time"
 )
@@ -108,4 +109,37 @@ func TestWarp(t *testing.T) {
 		t.Fail()
 	}
 
+}
+
+func TestBeShot(t *testing.T) {
+
+	sn := NewSniper(nil, nil, 100)
+
+	for i := 0; i < 100000; i++ {
+
+		ammo := protocol.Ammo{
+			Id: uint32(i),
+		}
+		sn.beShot(&ammo)
+	}
+}
+
+func BenchmarkBeshot(b *testing.B) {
+	sn := NewSniper(nil, nil, 100)
+
+	go func() {
+
+		b := make([]byte, 1<<20)
+		for {
+			sn.Read(b)
+		}
+	}()
+
+	for i := 0; i < b.N; i++ {
+
+		ammo := protocol.Ammo{
+			Id: uint32(i),
+		}
+		sn.beShot(&ammo)
+	}
 }
