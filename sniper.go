@@ -2,6 +2,7 @@ package sharpshooter
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
@@ -20,8 +21,8 @@ const (
 var Flow int
 
 const (
-	DEFAULT_INIT_SENDWIND                      = 128
-	DEFAULT_INIT_MAXSENDWIND                   = 1024
+	DEFAULT_INIT_SENDWIND                      = 32
+	DEFAULT_INIT_MAXSENDWIND                   = 1024 * 10
 	DEFAULT_INIT_RECEWIND                      = 1 << 20
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
@@ -172,6 +173,7 @@ func (s *Sniper) shoot() {
 			if err != nil {
 				panic(err)
 			}
+			//fmt.Println(string(s.ammoBag[k].Body))
 
 			Flow += len(b)
 
@@ -227,7 +229,7 @@ func (s *Sniper) shooter() {
 			return
 		}
 
-		//fmt.Println("timeout shoot")
+		fmt.Println("timeout shoot")
 		s.shoot()
 
 	}
@@ -262,6 +264,7 @@ func (s *Sniper) ackSender() {
 
 		}
 
+		fmt.Println("ackid :", id)
 		ammo := protocol.Ammo{
 			Id:   id,
 			Kind: protocol.ACK,
@@ -279,7 +282,7 @@ func (s *Sniper) ackSender() {
 			return
 		}
 
-		timer.Reset(time.Millisecond * 200)
+		timer.Reset(time.Duration(s.rtt) * 2 * time.Nanosecond)
 
 	}
 }
@@ -309,7 +312,7 @@ func (s *Sniper) score(id uint32) {
 
 		if s.lostCount > 10 {
 
-			//fmt.Println("fast")
+			fmt.Println("fast")
 
 			if index >= len(s.ammoBag) {
 				_ = s.writerBlocker.Pass()
@@ -323,7 +326,14 @@ func (s *Sniper) score(id uint32) {
 				return
 			}
 
-			_, _ = s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
+			atomic.StoreInt32(&s.maxWindows, (s.maxWindows)/2)
+			fmt.Println(s.maxWindows)
+
+			s.lostCount = 0
+			s.mu.Unlock()
+			s.shoot()
+			return
+			//_, _ = s.conn.WriteToUDP(protocol.Marshal(*s.ammoBag[index]), s.aim)
 
 		}
 
@@ -336,7 +346,7 @@ func (s *Sniper) score(id uint32) {
 
 		atomic.StoreInt64(&s.rto, atomic.LoadInt64(&s.rtt)*2)
 		if s.maxWindows < DEFAULT_INIT_MAXSENDWIND {
-			s.maxWindows = s.maxWindows * 2
+			s.maxWindows = int32(float64(s.maxWindows) * 1.125)
 		} else {
 			s.maxWindows = s.maxWindows + 1
 		}
@@ -426,7 +436,6 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 }
 
 func (s *Sniper) Read(b []byte) (n int, err error) {
-	defer tool.TimeConsuming()()
 loop:
 
 	s.bemu.Lock()
@@ -436,7 +445,7 @@ loop:
 
 		n += cpn
 
-		if cpn == len(b) {
+		if n == len(b) {
 			if cpn < len(s.beShotAmmoBag[0].Body) {
 				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[cpn:]
 			} else {
@@ -471,6 +480,7 @@ loop:
 		}
 
 	}
+	//fmt.Println(string(b[:n]))
 
 	return
 }
@@ -597,7 +607,7 @@ func (s *Sniper) Close() {
 	loop:
 
 		s.mu.Lock()
-		if len(s.ammoBag) == 0 {
+		if len(s.ammoBag) == 0 && len(s.sendCache) == 0 {
 			s.mu.Unlock()
 
 			s.ammoBag = append(s.ammoBag, &protocol.Ammo{

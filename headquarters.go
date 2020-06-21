@@ -191,189 +191,194 @@ func (h *headquarters) monitor() {
 
 		msg := protocol.Unmarshal(b[:n])
 
-		switch msg.Kind {
+		h.routing(msg, remote)
+	}
 
-		case protocol.ACK:
+}
 
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-			sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
-			sn.score(msg.Id)
+func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 
-		case protocol.FIRSTHANDSHACK:
+	switch msg.Kind {
 
-			sn := NewSniper(h.conn, remote.(*net.UDPAddr))
+	case protocol.ACK:
 
-			h.Snipers[remote.String()] = sn
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
+		sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
+		sn.score(msg.Id)
 
-			ammo := protocol.Ammo{
-				Id:   0,
-				Kind: protocol.SECONDHANDSHACK,
-				Body: nil,
-			}
+	case protocol.FIRSTHANDSHACK:
 
-			go func() {
+		sn := NewSniper(h.conn, remote.(*net.UDPAddr))
 
-				var tryconut int
-				ticker := time.NewTicker(time.Second)
+		h.Snipers[remote.String()] = sn
 
-			loop:
-				if tryconut > 6 {
-					return
-				}
+		ammo := protocol.Ammo{
+			Id:   0,
+			Kind: protocol.SECONDHANDSHACK,
+			Body: nil,
+		}
 
-				sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
+		go func() {
 
-				select {
+			var tryconut int
+			ticker := time.NewTicker(time.Second)
 
-				case <-ticker.C:
-					tryconut++
-					goto loop
-				case <-sn.handshakesign:
-					return
-				}
-
-			}()
-
-		case protocol.SECONDHANDSHACK:
-
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-
-			ammo := protocol.Ammo{
-				Id:   0,
-				Kind: protocol.THIRDHANDSHACK,
-				Body: nil,
+		loop:
+			if tryconut > 6 {
+				return
 			}
 
 			sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
-		case protocol.THIRDHANDSHACK:
-
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-
-			//sn.rtt = time.Now().UnixNano() - sn.rtt
-			//if sn.rtt < DEFAULT_INIT_MIN_TIMEOUT {
-			//	sn.rtt = DEFAULT_INIT_MIN_TIMEOUT
-			//}
-
-			sn.healthTimer = time.NewTimer(time.Second * 3)
-			go sn.healthMonitor()
-
 			select {
-			case sn.handshakesign <- struct{}{}:
-			default:
 
+			case <-ticker.C:
+				tryconut++
+				goto loop
+			case <-sn.handshakesign:
+				return
 			}
 
-			h.accept <- sn
+		}()
 
-		case protocol.CLOSE:
+	case protocol.SECONDHANDSHACK:
 
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
 
-			if msg.Id == sn.beShotCurrentId {
+		ammo := protocol.Ammo{
+			Id:   0,
+			Kind: protocol.THIRDHANDSHACK,
+			Body: nil,
+		}
 
-				sn.beShotCurrentId++
-				//sn.isClose = true
+		sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
-				sn.ack(msg.Id)
+	case protocol.THIRDHANDSHACK:
 
-				go func() {
-				l:
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
 
-					sn.bemu.Lock()
-					//fmt.Println(len(sn.ammoBagCach))
-					if len(sn.ammoBag) == 0 {
+		//sn.rtt = time.Now().UnixNano() - sn.rtt
+		//if sn.rtt < DEFAULT_INIT_MIN_TIMEOUT {
+		//	sn.rtt = DEFAULT_INIT_MIN_TIMEOUT
+		//}
 
-						sn.writerBlocker.Close()
+		sn.healthTimer = time.NewTimer(time.Second * 3)
+		go sn.healthMonitor()
 
-						sn.isClose = true
+		select {
+		case sn.handshakesign <- struct{}{}:
+		default:
 
-						sn.acksign.Close()
-						fmt.Println("close!")
-						close(sn.closeChan)
-						//close(sn.acksign)
-						sn.bemu.Unlock()
-						delete(h.Snipers, remote.String())
-						_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
-							Kind: protocol.CLOSERESP,
-							Body: nil,
-						}), sn.aim)
-						if err != nil {
-							panic(err)
-						}
+		}
 
-					} else {
+		h.accept <- sn
 
-						sn.bemu.Unlock()
+	case protocol.CLOSE:
 
-						runtime.Gosched()
-						goto l
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
 
+		if msg.Id == sn.beShotCurrentId {
+
+			sn.beShotCurrentId++
+			//sn.isClose = true
+
+			sn.ack(msg.Id)
+
+			go func() {
+			l:
+
+				sn.bemu.Lock()
+				//fmt.Println(len(sn.ammoBagCach))
+				if len(sn.ammoBag) == 0 {
+
+					sn.writerBlocker.Close()
+
+					sn.isClose = true
+
+					sn.acksign.Close()
+					fmt.Println("close!")
+					close(sn.closeChan)
+					//close(sn.acksign)
+					sn.bemu.Unlock()
+					delete(h.Snipers, remote.String())
+					_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+						Kind: protocol.CLOSERESP,
+						Body: nil,
+					}), sn.aim)
+					if err != nil {
+						panic(err)
 					}
 
-				}()
+				} else {
 
-			}
+					sn.bemu.Unlock()
 
-		case protocol.CLOSERESP:
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-			fmt.Println("closeresponse")
-			close(sn.closeChan)
+					runtime.Gosched()
+					goto l
 
-		case protocol.HEALTHCHECK:
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-			_, err = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
-				Kind: protocol.HEALTCHRESP,
-			}), sn.aim)
+				}
 
-		case protocol.HEALTCHRESP:
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
+			}()
 
-			atomic.StoreInt32(&sn.healthTryCount, 0)
+		}
 
-			t := time.Now().UnixNano()
+	case protocol.CLOSERESP:
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
+		fmt.Println("closeresponse")
+		close(sn.closeChan)
 
-			// new rtt 15% come form new value , 85% come form old value
-			atomic.StoreInt64(&sn.rtt, int64(0.125*float64(t-sn.timeFlag)+(1-0.125)*float64(atomic.LoadInt64(&sn.rtt))))
+	case protocol.HEALTHCHECK:
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
+		_, _ = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+			Kind: protocol.HEALTCHRESP,
+		}), sn.aim)
+
+	case protocol.HEALTCHRESP:
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
+
+		atomic.StoreInt32(&sn.healthTryCount, 0)
+
+		t := time.Now().UnixNano()
+
+		// new rtt 15% come form new value , 85% come form old value
+		atomic.StoreInt64(&sn.rtt, int64(0.125*float64(t-sn.timeFlag)+(1-0.125)*float64(atomic.LoadInt64(&sn.rtt))))
+
+	default:
+		sn, ok := h.Snipers[remote.String()]
+		if !ok {
+			return
+		}
+
+		//sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
+
+		sn.beShot(&msg)
+
+		select {
+
+		case h.blocksign <- struct{}{}:
 
 		default:
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				continue
-			}
-
-			//sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
-
-			sn.beShot(&msg)
-
-			select {
-
-			case h.blocksign <- struct{}{}:
-
-			default:
-
-			}
 
 		}
 

@@ -67,7 +67,7 @@ func TestSendAndReceive(t *testing.T) {
 
 func TestSniper_DeferSend(t *testing.T) {
 
-	sn := NewSniper(nil, nil, 100)
+	sn := NewSniper(nil, nil)
 
 	sn.sendCacheSize = 1
 
@@ -94,13 +94,13 @@ func TestSniper_DeferSend(t *testing.T) {
 
 func TestWarp(t *testing.T) {
 
-	sn := NewSniper(nil, nil, 100)
+	sn := NewSniper(nil, nil)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		sn.deferSend([]byte{uint8(i)})
 	}
 
-	sn.packageSize = 1
+	sn.packageSize = 10
 
 	sn.wrap()
 
@@ -108,12 +108,16 @@ func TestWarp(t *testing.T) {
 	if len(sn.ammoBag) != 100 {
 		t.Fail()
 	}
+	for _, v := range sn.ammoBag {
+
+		fmt.Println(v.Body)
+	}
 
 }
 
 func TestBeShot(t *testing.T) {
 
-	sn := NewSniper(nil, nil, 100)
+	sn := NewSniper(nil, nil)
 
 	for i := 0; i < 100000; i++ {
 
@@ -125,7 +129,7 @@ func TestBeShot(t *testing.T) {
 }
 
 func BenchmarkBeshot(b *testing.B) {
-	sn := NewSniper(nil, nil, 100)
+	sn := NewSniper(nil, nil)
 
 	go func() {
 
@@ -142,4 +146,56 @@ func BenchmarkBeshot(b *testing.B) {
 		}
 		sn.beShot(&ammo)
 	}
+}
+
+func BenchmarkWrap(b *testing.B) {
+
+	for i := 0; i < b.N; i++ {
+		sn := NewSniper(nil, nil)
+
+		b := make([]byte, 1<<20)
+
+		sn.sendCache = b
+
+		for k := range b {
+			b[k] = uint8(k)
+		}
+		sn.maxWindows = (1 << 20) / 1024
+
+		sn.wrap()
+
+	}
+
+}
+
+func BenchmarkRouting(b *testing.B) {
+
+	h := NewHeadquarters()
+	var addr = net.UDPAddr{}
+	h.Snipers[addr.String()] = NewSniper(nil, nil)
+	go func() {
+
+		b := make([]byte, 1<<20)
+		for {
+			h.Snipers[addr.String()].Read(b)
+		}
+	}()
+	for i := 0; i < b.N; i++ {
+
+		b := make([]byte, 1024)
+
+		for k := range b {
+			b[k] = uint8(k)
+		}
+
+		ammo := protocol.Ammo{
+			Id:   uint32(i),
+			Kind: protocol.NORMAL,
+			Body: b,
+		}
+
+		h.routing(ammo, &addr)
+
+	}
+
 }
