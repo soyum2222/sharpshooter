@@ -2,7 +2,6 @@ package sharpshooter
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
@@ -129,7 +128,7 @@ func (s *Sniper) healthMonitor() {
 				s.acksign.Close()
 				close(s.readblock)
 				s.writerBlocker.Close()
-				fmt.Println("time out")
+				//fmt.Println("time out")
 				close(s.closeChan)
 
 				return
@@ -146,7 +145,7 @@ func (s *Sniper) shoot() {
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
 		defer tool.TimeConsuming()()
 
-		fmt.Println("max windwos", s.maxWindows)
+		//fmt.Println("max windwos", s.maxWindows)
 		s.mu.Lock()
 
 		s.flush()
@@ -193,7 +192,7 @@ func (s *Sniper) flush() {
 	if len(s.ammoBag) < int(s.index) || s.index == 0 {
 		return
 	}
-	fmt.Println("index:", s.index)
+	//fmt.Println("index:", s.index)
 	s.ammoBag = s.ammoBag[s.index:]
 
 	if len(s.ammoBag) == 0 {
@@ -209,7 +208,7 @@ func (s *Sniper) flush() {
 
 func (s *Sniper) shooter() {
 
-	fmt.Println("rto ", s.rto)
+	//fmt.Println("rto ", s.rto)
 	s.timeoutTimer = time.NewTimer(time.Duration(s.rto) * time.Nanosecond)
 	for {
 
@@ -228,7 +227,7 @@ func (s *Sniper) shooter() {
 			return
 		}
 
-		fmt.Println("timeout shoot")
+		//fmt.Println("timeout shoot")
 		s.shoot()
 
 	}
@@ -248,7 +247,7 @@ func (s *Sniper) ack(id uint32) {
 
 func (s *Sniper) ackSender() {
 
-	fmt.Println("rtt", s.rtt)
+	//fmt.Println("rtt", s.rtt)
 	timer := time.NewTimer(time.Duration(s.rtt) * time.Nanosecond)
 	for {
 
@@ -286,7 +285,7 @@ func (s *Sniper) ackSender() {
 }
 
 func (s *Sniper) score(id uint32) {
-	fmt.Println("ack id", id)
+	//fmt.Println("ack id", id)
 
 	s.mu.Lock()
 
@@ -310,7 +309,7 @@ func (s *Sniper) score(id uint32) {
 
 		if s.lostCount > 10 {
 
-			fmt.Println("fast")
+			//fmt.Println("fast")
 
 			if index >= len(s.ammoBag) {
 				_ = s.writerBlocker.Pass()
@@ -500,8 +499,10 @@ func (s *Sniper) wrap() {
 		body := s.sendCache[:anchor]
 
 		b := make([]byte, len(body))
+		//b := make([]byte, 0, len(body))
 
 		copy(b, body)
+		//b = append(b, body...)
 
 		s.sendCache = s.sendCache[anchor:]
 
@@ -585,7 +586,7 @@ loop:
 
 func (s *Sniper) Close() {
 
-	fmt.Println("closeeeeeeeeee")
+	//fmt.Println("closeeeeeeeeee")
 
 	if s.isClose {
 		return
