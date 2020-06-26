@@ -33,6 +33,17 @@ func Dial(addr string) (*Sniper, error) {
 
 	go h.monitor()
 
+	//for {
+	//
+	//	a := protocol.Ammo{
+	//		Id:   0,
+	//		Kind: protocol.NORMAL,
+	//		Body: make([]byte, 1024),
+	//	}
+	//
+	//	h.Snipers[udpaddr.String()].conn.WriteToUDP(protocol.Marshal(a), udpaddr)
+	//}
+
 	return h.Snipers[udpaddr.String()], nil
 }
 
@@ -180,14 +191,28 @@ func (h *headquarters) monitor() {
 	//
 	//}()
 
+	//var count int
+	//
+	//go func() {
+	//
+	//	t := time.NewTicker(time.Second)
+	//	for {
+	//		<-t.C
+	//		fmt.Println("count:", count)
+	//		count = 0
+	//	}
+	//
+	//}()
+
 	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
 	for {
 
 		n, remote, err := h.conn.ReadFrom(b)
 		if err != nil {
-			panic(err)
 			return
 		}
+
+		//count++
 
 		msg := protocol.Unmarshal(b[:n])
 
@@ -206,7 +231,7 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 		if !ok {
 			return
 		}
-		sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
+		//sn.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
 		sn.score(msg.Id)
 
 	case protocol.FIRSTHANDSHACK:
@@ -361,8 +386,10 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 
 		t := time.Now().UnixNano()
 
+		sn.calrto(t - sn.timeFlag)
+
 		// new rtt 15% come form new value , 85% come form old value
-		atomic.StoreInt64(&sn.rtt, int64(0.125*float64(t-sn.timeFlag)+(1-0.125)*float64(atomic.LoadInt64(&sn.rtt))))
+		//atomic.StoreInt64(&sn.rtt, int64(0.125*float64(t-sn.timeFlag)+(1-0.125)*float64(atomic.LoadInt64(&sn.rtt))))
 
 	default:
 		sn, ok := h.Snipers[remote.String()]

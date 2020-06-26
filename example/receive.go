@@ -33,7 +33,7 @@ func main() {
 		panic(err)
 	}
 
-	b := make([]byte, 1024)
+	b := make([]byte, 10240)
 	for i := 0; ; i++ {
 		n, err := sniper.Read(b)
 		if err != nil {

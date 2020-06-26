@@ -162,10 +162,36 @@ func BenchmarkWrap(b *testing.B) {
 		}
 		sn.maxWindows = (1 << 20) / 1024
 
+		//sn.flush()
 		sn.wrap()
 
 	}
 
+}
+
+func BenchmarkShot(b *testing.B) {
+
+	h := NewHeadquarters()
+	var addr = net.UDPAddr{
+		IP:   net.ParseIP("192.168.1.2"),
+		Port: 9888,
+		Zone: "",
+	}
+
+	conn, err := net.DialUDP("udp", nil, &addr)
+	if err != nil {
+		panic(err)
+	}
+
+	h.Snipers[addr.String()] = NewSniper(conn, &addr)
+
+	bb := make([]byte, 1<<20)
+	h.Snipers[addr.String()].timeoutTimer = time.NewTimer(1)
+	h.Snipers[addr.String()].sendCache = bb
+	for i := 0; i < b.N; i++ {
+
+		h.Snipers[addr.String()].shoot()
+	}
 }
 
 func BenchmarkRouting(b *testing.B) {
@@ -193,8 +219,9 @@ func BenchmarkRouting(b *testing.B) {
 			Kind: protocol.NORMAL,
 			Body: b,
 		}
+		a := protocol.Unmarshal(protocol.Marshal(ammo))
 
-		h.routing(ammo, &addr)
+		h.routing(a, &addr)
 
 	}
 
