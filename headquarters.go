@@ -2,7 +2,6 @@ package sharpshooter
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"runtime"
 	"sharpshooter/protocol"
@@ -32,17 +31,6 @@ func Dial(addr string) (*Sniper, error) {
 	}
 
 	go h.monitor()
-
-	//for {
-	//
-	//	a := protocol.Ammo{
-	//		Id:   0,
-	//		Kind: protocol.NORMAL,
-	//		Body: make([]byte, 1024),
-	//	}
-	//
-	//	h.Snipers[udpaddr.String()].conn.WriteToUDP(protocol.Marshal(a), udpaddr)
-	//}
 
 	return h.Snipers[udpaddr.String()], nil
 }
@@ -183,26 +171,6 @@ func (h *headquarters) clear() {
 }
 func (h *headquarters) monitor() {
 	go h.clear()
-	//
-	//defer func() {
-	//	if e := recover(); e != nil {
-	//		fmt.Println(e)
-	//	}
-	//
-	//}()
-
-	//var count int
-	//
-	//go func() {
-	//
-	//	t := time.NewTicker(time.Second)
-	//	for {
-	//		<-t.C
-	//		fmt.Println("count:", count)
-	//		count = 0
-	//	}
-	//
-	//}()
 
 	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
 	for {
@@ -325,7 +293,6 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 			l:
 
 				sn.bemu.Lock()
-				//fmt.Println(len(sn.ammoBagCach))
 				if len(sn.ammoBag) == 0 {
 
 					sn.writerBlocker.Close()
@@ -333,9 +300,7 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 					sn.isClose = true
 
 					sn.acksign.Close()
-					fmt.Println("close!")
 					close(sn.closeChan)
-					//close(sn.acksign)
 					sn.bemu.Unlock()
 					delete(h.Snipers, remote.String())
 					_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
@@ -364,7 +329,6 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 		if !ok {
 			return
 		}
-		fmt.Println("closeresponse")
 		close(sn.closeChan)
 
 	case protocol.HEALTHCHECK:
