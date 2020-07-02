@@ -23,11 +23,11 @@ var Flow int
 const (
 	DEFAULT_INIT_SENDWIND                      = 128
 	DEFAULT_INIT_MAXSENDWIND                   = 1024 * 10
-	DEFAULT_INIT_RECEWIND                      = 1 << 20
+	DEFAULT_INIT_RECEWIND                      = 4 << 20
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 3
-	DEFAULT_INIT_SENDCACH                      = 1 << 20
+	DEFAULT_INIT_SENDCACH                      = 4 << 20
 	DEFAULT_INIT_RTO_UNIT                      = float64(500 * time.Millisecond)
 	DEFAULT_INIT_DELAY_ACK                     = float64(200 * time.Millisecond)
 )
@@ -76,6 +76,7 @@ type Sniper struct {
 	errorchan     chan error
 	mu            sync.RWMutex
 	bemu          sync.Mutex
+	clock         sync.Mutex
 }
 
 func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
@@ -618,6 +619,8 @@ loop:
 
 func (s *Sniper) Close() {
 
+	s.clock.Lock()
+	defer s.clock.Unlock()
 	if s.isClose {
 		return
 	}

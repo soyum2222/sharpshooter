@@ -3,6 +3,7 @@ package sharpshooter
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 func (s *Sniper) calrto(rtt int64) {
@@ -26,6 +27,10 @@ func (s *Sniper) calrto(rtt int64) {
 
 	s.rtt = SRTT
 	s.rto = RTO
+
+	if s.rtt < int64(time.Millisecond*10) {
+		s.rtt = int64(time.Millisecond * 10)
+	}
 
 	fmt.Println("rtt rto", s.rtt, s.rto)
 
