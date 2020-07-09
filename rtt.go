@@ -1,7 +1,6 @@
 package sharpshooter
 
 import (
-	"fmt"
 	"math"
 	"time"
 )
@@ -15,7 +14,7 @@ func (s *Sniper) calrto(rtt int64) {
 		RTO := SRTT + int64(math.Max(DEFAULT_INIT_RTO_UNIT, float64(4*RTTVAR)))
 		s.rto = RTO
 		s.rtt = SRTT
-		fmt.Println("rtt rto", s.rtt, s.rto)
+		//fmt.Println("rtt rto", s.rtt, s.rto)
 
 	}
 
@@ -32,6 +31,6 @@ func (s *Sniper) calrto(rtt int64) {
 		s.rtt = int64(time.Millisecond * 10)
 	}
 
-	fmt.Println("rtt rto", s.rtt, s.rto)
+	//fmt.Println("rtt rto", s.rtt, s.rto)
 
 }

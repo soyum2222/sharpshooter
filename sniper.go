@@ -3,6 +3,8 @@ package sharpshooter
 import (
 	"errors"
 	"fmt"
+
+	//"fmt"
 	"net"
 	"sharpshooter/protocol"
 	"sharpshooter/tool/block"
@@ -21,7 +23,7 @@ var Flow int
 //var mark map[uint32]bool
 
 const (
-	DEFAULT_INIT_SENDWIND                      = 32
+	DEFAULT_INIT_SENDWIND                      = 1024
 	DEFAULT_INIT_MAXSENDWIND                   = 1024 * 10
 	DEFAULT_INIT_RECEWIND                      = 1 << 10
 	DEFAULT_INIT_PACKSIZE                      = 1024
@@ -102,9 +104,28 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		sendCache:     make([]byte, 0),
 		//sendCacheSize: DEFAULT_INIT_SENDCACH,
 	}
-	sn.writer = sn.write
+	sn.writer = sn.deferSend
 	return sn
 }
+
+//
+//func (s *Sniper) SetSendCache(size int64) {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	s.sendCacheSize = size
+//}
+//
+//func (s *Sniper) SetPackageSize(size int64) {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	s.packageSize = size
+//}
+//
+//func (s *Sniper) SetRecWin(size int64) {
+//	s.bemu.Lock()
+//	defer s.bemu.Unlock()
+//	s.beShotAmmoBag = make([]*protocol.Ammo, size)
+//}
 
 func (s *Sniper) healthMonitor() {
 
@@ -130,12 +151,18 @@ func (s *Sniper) healthMonitor() {
 
 			} else {
 				// timeout
-				s.errorcontainer.Store(TIMEOUTERROR)
+				s.clock.Lock()
+				defer s.clock.Unlock()
+				if s.isClose {
+					return
+				}
+
+				s.errorcontainer.Store(errors.New(TIMEOUTERROR.Error()))
 				close(s.errorsign)
 
 				s.acksign.Close()
 				s.writerBlocker.Close()
-				s.conn.Close()
+				//s.conn.Close()
 				s.isClose = true
 				close(s.closeChan)
 				close(s.readblock)
@@ -203,7 +230,7 @@ func (s *Sniper) shoot() {
 				select {
 				case <-s.errorsign:
 				default:
-					s.errorcontainer.Store(err)
+					s.errorcontainer.Store(errors.New(err.Error()))
 					close(s.errorsign)
 				}
 			}
@@ -267,7 +294,6 @@ func (s *Sniper) shooter() {
 }
 
 func (s *Sniper) ack(id uint32) {
-
 	cid := atomic.LoadUint32(&s.ackId)
 	if cid < id {
 		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
@@ -299,14 +325,13 @@ func (s *Sniper) ackSender() {
 			Body: nil,
 		}
 
-		fmt.Println("ack ", id)
 		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
 		if err != nil {
 			select {
 			case <-s.errorsign:
 				return
 			default:
-				s.errorcontainer.Store(err)
+				s.errorcontainer.Store(errors.New(err.Error()))
 			}
 		}
 
@@ -324,7 +349,7 @@ func (s *Sniper) ackSender() {
 }
 
 func (s *Sniper) score(id uint32) {
-	fmt.Println("score ", id)
+	//fmt.Println("score ", id)
 	s.mu.Lock()
 
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
@@ -346,15 +371,15 @@ func (s *Sniper) score(id uint32) {
 
 		if s.lostCount > 2 {
 
-			if index >= len(s.ammoBag) {
-				_ = s.writerBlocker.Pass()
-				_, _ = s.conn.WriteTo(protocol.Marshal(protocol.Ammo{
-					Kind: protocol.OUTOFAMMO,
-					Body: nil,
-				}), s.aim)
-				s.mu.Unlock()
-				return
-			}
+			//if index >= len(s.ammoBag) {
+			//	_ = s.writerBlocker.Pass()
+			//	_, _ = s.conn.WriteTo(protocol.Marshal(protocol.Ammo{
+			//		Kind: protocol.OUTOFAMMO,
+			//		Body: nil,
+			//	}), s.aim)
+			//	s.mu.Unlock()
+			//	return
+			//}
 
 			s.zoomoutWin()
 
@@ -375,9 +400,13 @@ func (s *Sniper) score(id uint32) {
 		s.expandWin()
 
 		_ = s.writerBlocker.Pass()
-		s.mu.Unlock()
 
-		s.shoot()
+		if len(s.ammoBag) > 0 {
+			s.mu.Unlock()
+			s.shoot()
+		} else {
+			s.mu.Unlock()
+		}
 
 	} else {
 		s.mu.Unlock()
@@ -406,10 +435,10 @@ func (s *Sniper) expandWin() {
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
-	if ammo.Kind == protocol.OUTOFAMMO {
-		atomic.StoreUint32(&s.ackId, 0)
-		return
-	}
+	//if ammo.Kind == protocol.OUTOFAMMO {
+	//	atomic.StoreUint32(&s.ackId, 0)
+	//	return
+	//}
 
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
@@ -609,6 +638,9 @@ loop:
 	case <-s.errorsign:
 		return 0, s.errorcontainer.Load().(error)
 
+	case <-s.closeChan:
+		return 0, CLOSEERROR
+
 	default:
 
 	}
@@ -680,6 +712,7 @@ loop:
 			time.Sleep(time.Second)
 			try++
 			goto loop
+
 		}
 
 	} else {

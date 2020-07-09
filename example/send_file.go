@@ -14,20 +14,20 @@ func main() {
 
 	begin := time.Now()
 
-	conn, err := sharpshooter.Dial("192.168.1.2:8890")
+	conn, err := sharpshooter.Dial("103.195.5.77:8858")
 	if err != nil {
 		panic(err)
 	}
 	conn.OpenDeferSend()
 
-	info, err := os.Stat("./source")
+	info, err := os.Stat("./source1")
 	if err != nil {
 		panic(err)
 	}
 	size := info.Size()
 	fmt.Println(size)
 
-	file, err := os.Open("./source")
+	file, err := os.Open("./source1")
 
 	if err != nil {
 		panic(err)

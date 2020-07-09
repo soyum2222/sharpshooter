@@ -3,7 +3,6 @@ package sharpshooter
 import (
 	"errors"
 	"net"
-	"runtime"
 	"sharpshooter/protocol"
 	"sync/atomic"
 	"time"
@@ -113,7 +112,13 @@ func (h *headquarters) Dial(addr *net.UDPAddr) error {
 
 	}()
 
+	var i int
 loop:
+
+	if i > 6 {
+		return errors.New("dial timeout")
+	}
+
 	ammo := protocol.Ammo{
 		Kind: protocol.FIRSTHANDSHACK,
 	}
@@ -126,6 +131,7 @@ loop:
 	select {
 
 	case <-ticker.C:
+		i++
 		goto loop
 	case err = <-c:
 		if err != nil {
@@ -169,6 +175,8 @@ func (h *headquarters) clear() {
 
 	}
 }
+
+// use dial a sniper will leak!
 func (h *headquarters) monitor() {
 	go h.clear()
 
@@ -177,7 +185,7 @@ func (h *headquarters) monitor() {
 
 		n, remote, err := h.conn.ReadFrom(b)
 		if err != nil {
-			return
+			panic(err)
 		}
 
 		//count++
@@ -290,13 +298,20 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 			sn.ack(msg.Id)
 
 			go func() {
+				var try int
 			l:
-
 				sn.bemu.Lock()
-				if len(sn.ammoBag) == 0 {
 
+				// TODO
+				// here have possible a close message in the ammoBge
+				// now I don't know how to do
+				// temporarily add try count
+				if len(sn.ammoBag) == 0 || try > 10 {
 					sn.writerBlocker.Close()
 
+					if sn.isClose {
+						return
+					}
 					sn.isClose = true
 
 					sn.acksign.Close()
@@ -308,14 +323,13 @@ func (h *headquarters) routing(msg protocol.Ammo, remote net.Addr) {
 						Body: nil,
 					}), sn.aim)
 					if err != nil {
-						panic(err)
+						return
 					}
 
 				} else {
-
 					sn.bemu.Unlock()
-
-					runtime.Gosched()
+					time.Sleep(time.Second)
+					try++
 					goto l
 
 				}
