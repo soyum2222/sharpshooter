@@ -11,11 +11,11 @@ import (
 
 func main() {
 
-	go http.ListenAndServe(":9998", nil)
+	go http.ListenAndServe(":9999", nil)
 
 	addr := &net.UDPAddr{
 		IP:   nil,
-		Port: 8890,
+		Port: 8858,
 		Zone: "",
 	}
 	h, err := sharpshooter.Listen(addr)

@@ -50,7 +50,7 @@ func main() {
 
 		//print planned speed
 		if i%1000 == 0 {
-			//fmt.Println(float64(count) / float64(size))
+			fmt.Println(float64(count) / float64(size))
 		}
 
 	}
