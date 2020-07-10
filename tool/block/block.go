@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var noblock = errors.New("no any block")
+var noblock = errors.New("without any block")
 var closed = errors.New("blocker be closed")
 
 type Blocker struct {

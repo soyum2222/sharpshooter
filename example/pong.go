@@ -1,1 +1,59 @@
 package main
+
+import (
+	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	_ "net/http/pprof"
+	"sharpshooter"
+)
+
+func main() {
+
+	go http.ListenAndServe(":9999", nil)
+
+	addr := &net.UDPAddr{
+		IP:   nil,
+		Port: 8858,
+		Zone: "",
+	}
+	h, err := sharpshooter.Listen(addr)
+	if err != nil {
+		panic(err)
+	}
+
+	sniper, err := h.Accept()
+	if err != nil {
+		panic(err)
+	}
+
+	s := "pong"
+
+	lenght := make([]byte, 4)
+	for {
+
+		_, err := sniper.Read(lenght)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		b := make([]byte, binary.BigEndian.Uint32(lenght))
+
+		_, err = io.ReadFull(sniper, b)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println(string(b))
+
+		binary.BigEndian.PutUint32(lenght, uint32(len(s)))
+
+		_, err = sniper.Write(append(lenght, []byte(s)...))
+		if err != nil {
+			panic(err)
+		}
+
+	}
+}

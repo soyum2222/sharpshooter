@@ -2,8 +2,6 @@ package sharpshooter
 
 import (
 	"errors"
-	"fmt"
-
 	//"fmt"
 	"net"
 	"sharpshooter/protocol"
@@ -20,8 +18,6 @@ const (
 
 var Flow int
 
-//var mark map[uint32]bool
-
 const (
 	DEFAULT_INIT_SENDWIND                      = 1024
 	DEFAULT_INIT_MAXSENDWIND                   = 1024 * 10
@@ -29,6 +25,7 @@ const (
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 10
+	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
 	//DEFAULT_INIT_SENDCACH                      = 1 << 10
 	DEFAULT_INIT_RTO_UNIT  = float64(500 * time.Millisecond)
 	DEFAULT_INIT_DELAY_ACK = float64(200 * time.Millisecond)
@@ -45,21 +42,23 @@ type Sniper struct {
 	maxWindows           int32
 	oldWindows           int32
 	healthTryCount       int32
+	shootStatus          int32
 	sendid               uint32
 	beShotCurrentId      uint32
 	currentWindowStartId uint32
 	currentWindowEndId   uint32
-	shootStatus          int32
 	ackId                uint32
 	index                uint32
 	latestAckId          uint32
-	packageSize          int
+	packageSize          int64
 	lostCount            int
+
 	//placeholder          int32 // in 32 bit OS must 8-byte alignment
 	rtt      int64
 	rto      int64
 	timeFlag int64
-	//sendCacheSize  int64
+
+	// this slice will leak! but I dont know how to do ...
 	sendCache      []byte
 	writer         func(p []byte) (n int, err error)
 	aim            *net.UDPAddr
@@ -102,30 +101,28 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopshotsign:  make(chan struct{}, 0),
 		errorsign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
-		//sendCacheSize: DEFAULT_INIT_SENDCACH,
 	}
 	sn.writer = sn.deferSend
 	return sn
 }
 
-//
-//func (s *Sniper) SetSendCache(size int64) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.sendCacheSize = size
-//}
-//
-//func (s *Sniper) SetPackageSize(size int64) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.packageSize = size
-//}
-//
-//func (s *Sniper) SetRecWin(size int64) {
-//	s.bemu.Lock()
-//	defer s.bemu.Unlock()
-//	s.beShotAmmoBag = make([]*protocol.Ammo, size)
-//}
+func (s *Sniper) SetPackageSize(size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.packageSize = size
+}
+
+func (s *Sniper) SetRecWin(size int64) {
+	s.bemu.Lock()
+	defer s.bemu.Unlock()
+	s.beShotAmmoBag = make([]*protocol.Ammo, size)
+}
+
+func (s *Sniper) SetSendWin(size int32) {
+	s.bemu.Lock()
+	defer s.bemu.Unlock()
+	s.maxWindows = size
+}
 
 func (s *Sniper) healthMonitor() {
 
@@ -178,6 +175,7 @@ func (s *Sniper) healthMonitor() {
 
 }
 
+// send to remote
 func (s *Sniper) shoot() {
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
 
@@ -244,12 +242,14 @@ func (s *Sniper) shoot() {
 		s.mu.Unlock()
 
 		atomic.StoreInt32(&s.shootStatus, 0)
+
 	}
 	rto := atomic.LoadInt64(&s.rto)
 
 	s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
 }
 
+// remove already sent packages
 func (s *Sniper) flush() {
 	if len(s.ammoBag) < int(s.index) || s.index == 0 {
 		return
@@ -267,9 +267,9 @@ func (s *Sniper) flush() {
 
 }
 
+// timed trigger send
 func (s *Sniper) shooter() {
 
-	s.timeoutTimer = time.NewTimer(time.Duration(s.rto) * time.Nanosecond)
 	for {
 
 		select {
@@ -294,15 +294,17 @@ func (s *Sniper) shooter() {
 }
 
 func (s *Sniper) ack(id uint32) {
+
 	cid := atomic.LoadUint32(&s.ackId)
 	if cid < id {
 		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
 	}
 
-	s.acksign.Pass()
+	_ = s.acksign.Pass()
 
 }
 
+// timed trigger send ack
 func (s *Sniper) ackSender() {
 
 	timer := time.NewTimer(time.Duration(DEFAULT_INIT_DELAY_ACK))
@@ -348,8 +350,8 @@ func (s *Sniper) ackSender() {
 	}
 }
 
+// receive ack
 func (s *Sniper) score(id uint32) {
-	//fmt.Println("score ", id)
 	s.mu.Lock()
 
 	if id < atomic.LoadUint32(&s.currentWindowStartId) {
@@ -384,8 +386,13 @@ func (s *Sniper) score(id uint32) {
 			s.zoomoutWin()
 
 			s.lostCount = 0
-			s.mu.Unlock()
-			s.shoot()
+			if len(s.ammoBag) > 0 {
+				s.mu.Unlock()
+				s.shoot()
+			} else {
+				s.mu.Unlock()
+			}
+
 			return
 		}
 
@@ -418,11 +425,10 @@ func (s *Sniper) score(id uint32) {
 
 func (s *Sniper) zoomoutWin() {
 	//old := s.maxWindows
-	//
 	//s.maxWindows -= int32(math.Abs(float64(s.maxWindows-s.oldWindows)) / 2)
 	//s.oldWindows = old
+
 	s.maxWindows -= 1
-	fmt.Println("win", s.maxWindows)
 
 }
 
@@ -430,7 +436,6 @@ func (s *Sniper) expandWin() {
 
 	s.maxWindows += 1
 	//s.maxWindows += int32(math.Abs(float64(s.maxWindows-s.oldWindows)) / 2)
-	fmt.Println("win", s.maxWindows)
 }
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
@@ -504,6 +509,7 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 }
 
 func (s *Sniper) Read(b []byte) (n int, err error) {
+
 loop:
 
 	s.bemu.Lock()
@@ -564,21 +570,21 @@ func (s *Sniper) wrap() {
 		}
 
 		// anchor is mark sendCache current op index
-		var anchor int
+		var anchor int64
 
-		if l < s.packageSize {
-			anchor = l
+		if int64(l) < s.packageSize {
+			anchor = int64(l)
 		} else {
 			anchor = s.packageSize
 		}
 
+		// TODO this block will not be GC , so maybe can be reused here , I will try
 		body := s.sendCache[:anchor]
 
 		b := make([]byte, len(body))
-		//b := make([]byte, 0, len(body))
 
+		// no need copy
 		copy(b, body)
-		//b = append(b, body...)
 
 		s.sendCache = s.sendCache[anchor:]
 
@@ -596,6 +602,7 @@ func (s *Sniper) wrap() {
 
 }
 
+// send now,but this func is unavailable , should use deferSend
 func (s *Sniper) write(b []byte) (n int, err error) {
 
 	id := atomic.AddUint32(&s.sendid, 1)
@@ -654,8 +661,21 @@ loop:
 	}
 
 	if remain >= int64(len(b)) {
+
+		// if appending sendCache don't have enough cap , will malloc a new memory
+		// old memory will be GC
+		// if the slice cap too small , then malloc new memory often happen , this will affect performance
+		//
+
 		s.sendCache = append(s.sendCache, b...)
-		s.mu.Unlock()
+
+		if len(s.ammoBag) == 0 {
+			s.mu.Unlock()
+			s.shoot()
+		} else {
+			s.mu.Unlock()
+		}
+
 		return
 	}
 
@@ -664,7 +684,21 @@ loop:
 	b = b[remain:]
 
 	goto loop
+}
 
+func (s *Sniper) monitor() {
+	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
+	for {
+
+		n, err := s.conn.Read(b)
+		if err != nil {
+			s.errorcontainer.Store(errors.New(err.Error()))
+			close(s.errorsign)
+		}
+
+		msg := protocol.Unmarshal(b[:n])
+		routing(s, msg)
+	}
 }
 
 func (s *Sniper) Close() {
@@ -673,6 +707,7 @@ func (s *Sniper) Close() {
 	defer s.clock.Unlock()
 
 	var try int
+
 loop:
 	if s.isClose || try > 10 {
 		return
@@ -681,6 +716,7 @@ loop:
 	if s.isdefer {
 
 		s.mu.Lock()
+		// if ammoBag not clear , should delay try again
 		if len(s.ammoBag) == 0 && len(s.sendCache) == 0 {
 			s.mu.Unlock()
 
