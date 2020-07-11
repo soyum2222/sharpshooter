@@ -11,10 +11,11 @@ import (
 type headquarters struct {
 	conn           *net.UDPConn
 	Snipers        map[string]*Sniper
-	blocksign      chan struct{}
+	blockSign      chan struct{}
 	accept         chan *Sniper
-	errorsign      chan struct{}
-	errorcontainer atomic.Value
+	errorSign      chan struct{}
+	errorContainer atomic.Value
+	closeSign      chan struct{}
 }
 
 func Dial(addr string) (*Sniper, error) {
@@ -33,6 +34,7 @@ func Dial(addr string) (*Sniper, error) {
 	defer ticker.Stop()
 
 	sn := NewSniper(conn, udpaddr)
+	sn.noLeader = true
 
 	c := make(chan error, 1)
 
@@ -119,9 +121,10 @@ func NewHeadquarters() *headquarters {
 
 	return &headquarters{
 		Snipers:   map[string]*Sniper{},
-		blocksign: make(chan struct{}, 0),
+		blockSign: make(chan struct{}, 0),
 		accept:    make(chan *Sniper, 10),
-		errorsign: make(chan struct{}, 0),
+		errorSign: make(chan struct{}, 0),
+		closeSign: make(chan struct{}, 0),
 	}
 }
 
@@ -133,6 +136,10 @@ func (h *headquarters) Accept() (*Sniper, error) {
 	return sn, nil
 }
 
+func (h *headquarters) Close() {
+
+}
+
 func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
 
 	sn, ok := h.Snipers[addr.String()]
@@ -142,11 +149,11 @@ func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
 
 	select {
 
-	case sn.ammoBagCach <- protocol.Unmarshal(b):
+	case sn.ammoBagCache <- protocol.Unmarshal(b):
 		return nil
 
-	case <-sn.errorsign:
-		return sn.errorcontainer.Load().(error)
+	case <-sn.errorSign:
+		return sn.errorContainer.Load().(error)
 
 	}
 
@@ -157,9 +164,15 @@ func (h *headquarters) clear() {
 	for {
 		time.Sleep(time.Second * 5)
 
-		for k, v := range h.Snipers {
-			if v.isClose {
-				delete(h.Snipers, k)
+		select {
+		case <-h.closeSign:
+			return
+		default:
+
+			for k, v := range h.Snipers {
+				if v.isClose {
+					delete(h.Snipers, k)
+				}
 			}
 		}
 
@@ -174,43 +187,47 @@ func (h *headquarters) monitor() {
 	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
 	for {
 
-		n, remote, err := h.conn.ReadFrom(b)
-		if err != nil {
-			h.errorcontainer.Store(err)
-			close(h.errorsign)
-		}
-
-		//count++
-
-		msg := protocol.Unmarshal(b[:n])
-		switch msg.Kind {
-
-		case protocol.FIRSTHANDSHACK:
-			firstHandShack(h, remote)
-
-		case protocol.SECONDHANDSHACK:
-			secondHandShack(h, remote)
-
-		case protocol.THIRDHANDSHACK:
-			thirdHandShack(h, remote)
+		select {
+		case <-h.closeSign:
 
 		default:
-			sn, ok := h.Snipers[remote.String()]
-			if !ok {
-				return
+
+			n, remote, err := h.conn.ReadFrom(b)
+			if err != nil {
+				h.errorContainer.Store(err)
+				close(h.errorSign)
 			}
 
-			routing(sn, msg)
+			msg := protocol.Unmarshal(b[:n])
+			switch msg.Kind {
 
-			select {
-			case h.blocksign <- struct{}{}:
+			case protocol.FIRSTHANDSHACK:
+				firstHandShack(h, remote)
+
+			case protocol.SECONDHANDSHACK:
+				secondHandShack(h, remote)
+
+			case protocol.THIRDHANDSHACK:
+				thirdHandShack(h, remote)
+
 			default:
+				sn, ok := h.Snipers[remote.String()]
+				if !ok {
+					continue
+				}
+
+				routing(sn, msg)
+
+				select {
+				case h.blockSign <- struct{}{}:
+				default:
+				}
+
 			}
 
 		}
 
 	}
-
 }
 
 func routing(sn *Sniper, msg protocol.Ammo) {
@@ -246,8 +263,11 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 					sn.isClose = true
 
-					sn.acksign.Close()
+					sn.ackSign.Close()
 					close(sn.closeChan)
+					if sn.noLeader {
+						sn.conn.Close()
+					}
 					sn.bemu.Unlock()
 					_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
 						Kind: protocol.CLOSERESP,
@@ -285,8 +305,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 		sn.calrto(t - sn.timeFlag)
 
-	default:
-
+	case protocol.NORMAL:
 		sn.beShot(&msg)
 
 	}
@@ -309,9 +328,9 @@ func (h *headquarters) ReadFrom(b []byte) (int, net.Addr, error) {
 		}
 
 		select {
-		case <-h.blocksign:
-		case <-h.errorsign:
-			return 0, nil, h.errorcontainer.Load().(error)
+		case <-h.blockSign:
+		case <-h.errorSign:
+			return 0, nil, h.errorContainer.Load().(error)
 		}
 
 	}

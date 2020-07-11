@@ -86,7 +86,7 @@ func TestSniper_DeferSend(t *testing.T) {
 
 	}()
 
-	sn.deferSend([]byte{uint8(1), uint8(2), uint8(3)})
+	sn.delaySend([]byte{uint8(1), uint8(2), uint8(3)})
 
 	fmt.Println(sn.sendCache)
 
@@ -97,7 +97,7 @@ func TestWarp(t *testing.T) {
 	sn := NewSniper(nil, nil)
 
 	for i := 0; i < 1000; i++ {
-		sn.deferSend([]byte{uint8(i)})
+		sn.delaySend([]byte{uint8(i)})
 	}
 
 	sn.packageSize = 10

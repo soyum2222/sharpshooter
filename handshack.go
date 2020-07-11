@@ -36,7 +36,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 			try++
 			goto loop
 
-		case <-sn.handshakesign:
+		case <-sn.handShakeSign:
 			return
 		}
 
@@ -68,7 +68,7 @@ func thirdHandShack(h *headquarters, remote net.Addr) {
 	go sn.healthMonitor()
 
 	select {
-	case sn.handshakesign <- struct{}{}:
+	case sn.handShakeSign <- struct{}{}:
 	default:
 
 	}
