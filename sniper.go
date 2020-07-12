@@ -377,7 +377,7 @@ func (s *Sniper) ackSender() {
 			return
 		}
 
-		timer.Reset(time.Duration(s.rtt))
+		timer.Reset(time.Duration(s.rtt / 2))
 
 	}
 }
@@ -461,12 +461,14 @@ func (s *Sniper) zoomoutWin() {
 	//s.oldWindows = old
 
 	s.maxWindows -= 1
+	//fmt.Println(s.maxWindows)
 
 }
 
 func (s *Sniper) expandWin() {
 
 	s.maxWindows += 1
+	//fmt.Println(s.maxWindows)
 	//s.maxWindows += int32(math.Abs(float64(s.maxWindows-s.oldWindows)) / 2)
 }
 

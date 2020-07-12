@@ -1,6 +1,7 @@
 package sharpshooter
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sharpshooter/protocol"
@@ -42,9 +43,23 @@ func Dial(addr string) (*Sniper, error) {
 
 		secondhand := make([]byte, 10)
 
-		_, err = sn.conn.Read(secondhand)
-		if err != nil {
-			c <- err
+		ctx, _ := context.WithTimeout(context.Background(), time.Second*6)
+
+		select {
+
+		case <-func() chan struct{} {
+			ch := make(chan struct{})
+			_, err = sn.conn.Read(secondhand)
+			if err != nil {
+				c <- err
+			}
+			close(ch)
+			return ch
+		}():
+
+		case <-ctx.Done():
+			_ = conn.Close()
+
 		}
 
 		if protocol.Unmarshal(secondhand).Kind != protocol.SECONDHANDSHACK {
