@@ -1,6 +1,14 @@
 
 ### Sharpshooter
 
-    Sharpshooter is a reliability network protocol useing UDP
+    Sharpshooter is a reliability network protocol useing UDP.
     
-    It has a very simple congestion control , send windows , defer ack and more 
+    It is a Connection-oriented protocol just like TCP.
+    
+    It dont has Packet characteristics,You can try it to bypassing some protocol characteristics detection.
+    
+    About instructions you can see example dir, I provided tow simple exampl.
+    
+    If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharpshooterTunel .
+    
+
