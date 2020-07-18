@@ -238,7 +238,7 @@ func (s *Sniper) shoot() {
 			}
 			b := protocol.Marshal(ammo)
 			_, _ = s.conn.WriteToUDP(b, s.aim)
-			s.addEffectFlow(len(b))
+			s.addTotalFlow(len(b))
 		}
 
 		for k, _ := range s.ammoBag {
@@ -265,7 +265,7 @@ func (s *Sniper) shoot() {
 				}
 			}
 
-			Flow += len(b)
+			s.addTotalFlow(len(b))
 
 		}
 
