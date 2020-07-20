@@ -67,6 +67,7 @@ type Sniper struct {
 	healthTimer    *time.Timer
 	ammoBag        []*protocol.Ammo
 	beShotAmmoBag  []*protocol.Ammo
+	receiveCache   []byte
 	ammoBagCache   chan protocol.Ammo
 	readBlock      chan struct{}
 	handShakeSign  chan struct{}
@@ -75,6 +76,8 @@ type Sniper struct {
 	closeChan      chan struct{}
 	stopShotSign   chan struct{}
 	errorSign      chan struct{}
+	fece           *fecEncoder
+	fecd           *fecDecoder
 	errorContainer atomic.Value
 
 	// send lock
@@ -105,6 +108,8 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
+		fecd:          newFecDecoder(4, 2),
+		fece:          newFecEncoder(4, 2),
 	}
 
 	sn.isDelay = true
@@ -482,6 +487,8 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 
+	var flag bool
+
 	bagIndex := ammo.Id - s.beShotCurrentId
 
 	// id < currentId , lost the ack
@@ -496,7 +503,7 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 			}
 		}
 
-		if id == 0 {
+		if id == 0 && !flag {
 			id = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
 		}
 
@@ -513,17 +520,54 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 		s.beShotAmmoBag[bagIndex] = ammo
 	}
 
+	var anchor int
+	for i := 0; i < len(s.beShotAmmoBag); {
+
+		blocks := make([][]byte, s.fecd.dataShards+s.fecd.parShards)
+		var empty int
+		for j := 0; j < s.fecd.dataShards+s.fecd.parShards && i < len(s.beShotAmmoBag); j++ {
+
+			if s.beShotAmmoBag[i] == nil {
+				blocks[j] = nil
+				empty++
+			} else {
+				blocks[j] = s.beShotAmmoBag[i].Body
+			}
+
+			i++
+		}
+
+		if empty > s.fecd.parShards {
+			break
+		}
+
+		data, err := s.fecd.decode(blocks)
+		if err == nil {
+			anchor += s.fecd.dataShards + s.fecd.parShards
+
+			s.receiveCache = append(s.receiveCache, data...)
+
+			s.beShotCurrentId += uint32(s.fecd.dataShards + s.fecd.parShards)
+		} else {
+			break
+		}
+	}
+
+	// cut off
+	s.beShotAmmoBag = s.beShotAmmoBag[anchor:]
+	s.beShotAmmoBag = append(s.beShotAmmoBag, make([]*protocol.Ammo, anchor)...)
+
 	var nid uint32
 	for k, v := range s.beShotAmmoBag {
 
 		if v == nil {
+			flag = true
 			nid = s.beShotCurrentId + uint32(k)
 			break
 		}
-
 	}
 
-	if nid == 0 {
+	if nid == 0 && !flag {
 		nid = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
 	}
 
@@ -547,29 +591,33 @@ func (s *Sniper) Read(b []byte) (n int, err error) {
 loop:
 
 	s.bemu.Lock()
-	for len(s.beShotAmmoBag) != 0 && s.beShotAmmoBag[0] != nil {
 
-		cpn := copy(b[n:], s.beShotAmmoBag[0].Body)
+	n += copy(b, s.receiveCache)
+	s.receiveCache = s.receiveCache[n:]
 
-		n += cpn
-
-		if n == len(b) {
-			if cpn < len(s.beShotAmmoBag[0].Body) {
-				s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[cpn:]
-			} else {
-				s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-				s.beShotCurrentId++
-			}
-			break
-
-		} else {
-
-			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-			s.beShotCurrentId++
-			continue
-		}
-
-	}
+	//for len(s.beShotAmmoBag) != 0 && s.beShotAmmoBag[0] != nil {
+	//
+	//	cpn := copy(b[n:], s.beShotAmmoBag[0].Body)
+	//
+	//	n += cpn
+	//
+	//	if n == len(b) {
+	//		if cpn < len(s.beShotAmmoBag[0].Body) {
+	//			s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[cpn:]
+	//		} else {
+	//			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
+	//			s.beShotCurrentId++
+	//		}
+	//		break
+	//
+	//	} else {
+	//
+	//		s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
+	//		s.beShotCurrentId++
+	//		continue
+	//	}
+	//
+	//}
 
 	s.bemu.Unlock()
 
@@ -596,46 +644,57 @@ loop:
 }
 
 func (s *Sniper) wrap() {
+loop:
 	remain := s.maxWindows - int32(len(s.ammoBag))
 
-	for i := 0; i < int(remain); i++ {
+	if remain <= 0 {
+		return
+	}
 
-		l := len(s.sendCache)
+	l := len(s.sendCache)
 
-		if l == 0 {
-			return
+	if l == 0 {
+		return
+	}
+
+	// anchor is mark sendCache current op index
+	var anchor int64
+
+	if int(l) < s.fece.dataShards*DEFAULT_INIT_PACKSIZE {
+		anchor = int64(l)
+	} else {
+		anchor = int64(s.fece.dataShards * DEFAULT_INIT_PACKSIZE)
+	}
+
+	// TODO this block will not be GC , so maybe can be reused here , I will try
+	body := s.sendCache[:anchor]
+
+	shard, err := s.fece.encode(body)
+	if err != nil {
+		s.errorContainer.Store(err)
+		select {
+		case <-s.errorSign:
+		default:
+			s.errorContainer.Store(errors.New(err.Error()))
+			close(s.errorSign)
 		}
+		return
+	}
 
-		// anchor is mark sendCache current op index
-		var anchor int64
+	s.sendCache = s.sendCache[anchor:]
 
-		if int64(l) < s.packageSize {
-			anchor = int64(l)
-		} else {
-			anchor = s.packageSize
-		}
-
-		// TODO this block will not be GC , so maybe can be reused here , I will try
-		body := s.sendCache[:anchor]
-
-		b := make([]byte, len(body))
-
-		// no need copy
-		copy(b, body)
-
-		s.sendCache = s.sendCache[anchor:]
+	for _, v := range shard {
 
 		id := atomic.AddUint32(&s.sendId, 1)
-
 		ammo := protocol.Ammo{
 			Id:   id - 1,
 			Kind: protocol.NORMAL,
-			Body: b,
+			Body: v,
 		}
-
 		s.ammoBag = append(s.ammoBag, &ammo)
-
 	}
+
+	goto loop
 
 }
 
