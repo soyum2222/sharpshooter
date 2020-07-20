@@ -19,6 +19,7 @@ func main() {
 		panic(err)
 	}
 	conn.OpenDeferSend()
+	conn.OpenStaFlow()
 
 	info, err := os.Stat("./source")
 	if err != nil {
@@ -61,5 +62,5 @@ func main() {
 	end := time.Now()
 
 	fmt.Println(end.Unix() - begin.Unix())
-	fmt.Println(sharpshooter.Flow)
+	fmt.Println(conn.FlowStatistics())
 }

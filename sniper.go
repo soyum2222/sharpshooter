@@ -479,11 +479,6 @@ func (s *Sniper) expandWin() {
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
-	//if ammo.Kind == protocol.OUTOFAMMO {
-	//	atomic.StoreUint32(&s.ackId, 0)
-	//	return
-	//}
-
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 
@@ -543,19 +538,25 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
 		data, err := s.fecd.decode(blocks)
 		if err == nil {
+
 			anchor += s.fecd.dataShards + s.fecd.parShards
 
 			s.receiveCache = append(s.receiveCache, data...)
 
 			s.beShotCurrentId += uint32(s.fecd.dataShards + s.fecd.parShards)
+
 		} else {
 			break
 		}
 	}
 
 	// cut off
-	s.beShotAmmoBag = s.beShotAmmoBag[anchor:]
-	s.beShotAmmoBag = append(s.beShotAmmoBag, make([]*protocol.Ammo, anchor)...)
+	if anchor > len(s.beShotAmmoBag) {
+		s.beShotAmmoBag = make([]*protocol.Ammo, DEFAULT_INIT_RECEWIND)
+	} else {
+		s.beShotAmmoBag = s.beShotAmmoBag[anchor:]
+		s.beShotAmmoBag = append(s.beShotAmmoBag, make([]*protocol.Ammo, anchor)...)
+	}
 
 	var nid uint32
 	for k, v := range s.beShotAmmoBag {

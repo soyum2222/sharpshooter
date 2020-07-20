@@ -2,7 +2,6 @@ package sharpshooter
 
 import (
 	"bytes"
-	"errors"
 	"github.com/klauspost/reedsolomon"
 )
 
@@ -82,14 +81,6 @@ func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 	err := d.dec.Reconstruct(b)
 	if err != nil {
 		return nil, err
-	}
-
-	ok, err := d.dec.Verify(b)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errors.New("verify fail")
 	}
 
 	err = d.dec.Join(buff, b, len(b[0])*d.dataShards)
