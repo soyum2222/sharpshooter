@@ -18,17 +18,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	conn.OpenDeferSend()
+	conn.OpenStaFlow()
 	conn.OpenStaFlow()
 
-	info, err := os.Stat("./source")
+	info, err := os.Stat("./txt")
 	if err != nil {
 		panic(err)
 	}
 	size := info.Size()
 	fmt.Println(size)
 
-	file, err := os.Open("./source")
+	file, err := os.Open("./txt")
 
 	if err != nil {
 		panic(err)
@@ -56,6 +56,7 @@ func main() {
 
 	}
 
+	time.Sleep(time.Second * 5)
 	//conn.Write(b)
 	conn.Close()
 

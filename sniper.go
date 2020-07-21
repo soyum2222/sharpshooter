@@ -2,7 +2,7 @@ package sharpshooter
 
 import (
 	"errors"
-	//"fmt"
+	"fmt"
 	"net"
 	"sharpshooter/protocol"
 	"sharpshooter/tool/block"
@@ -108,8 +108,8 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
-		fecd:          newFecDecoder(4, 2),
-		fece:          newFecEncoder(4, 2),
+		fecd:          newFecDecoder(10, 3),
+		fece:          newFecEncoder(10, 3),
 	}
 
 	sn.isDelay = true
@@ -363,6 +363,7 @@ func (s *Sniper) ackSender() {
 			Kind: protocol.ACK,
 			Body: nil,
 		}
+		fmt.Println("ack", id)
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
 		if err != nil {
@@ -478,6 +479,12 @@ func (s *Sniper) expandWin() {
 }
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
+
+	fmt.Println(ammo.Id)
+	//if ammo.Kind == protocol.OUTOFAMMO {
+	//	atomic.StoreUint32(&s.ackId, 0)
+	//	return
+	//}
 
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
