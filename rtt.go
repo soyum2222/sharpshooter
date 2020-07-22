@@ -31,6 +31,4 @@ func (s *Sniper) calrto(rtt int64) {
 		s.rtt = int64(time.Millisecond * 10)
 	}
 
-	//fmt.Println("rtt rto", s.rtt, s.rto)
-
 }

@@ -1,8 +1,9 @@
 package sharpshooter
 
 import (
+	"encoding/binary"
 	"errors"
-	"fmt"
+	"math"
 	"net"
 	"sharpshooter/protocol"
 	"sharpshooter/tool/block"
@@ -79,6 +80,8 @@ type Sniper struct {
 	fece           *fecEncoder
 	fecd           *fecDecoder
 	errorContainer atomic.Value
+	ackLock        sync.Mutex
+	ackBuff        []uint32
 
 	// send lock
 	mu sync.Mutex
@@ -283,24 +286,48 @@ func (s *Sniper) shoot() {
 	}
 	rto := atomic.LoadInt64(&s.rto)
 
-	s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(500*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
 func (s *Sniper) flush() {
-	if len(s.ammoBag) < int(s.index) || s.index == 0 {
+
+	defer func() {
+		remain := int64(s.maxWindows)*int64(s.packageSize)*2 - int64(len(s.sendCache))
+		if remain > 0 {
+			s.writerBlocker.Pass()
+		}
+	}()
+
+	var index int
+	if len(s.ammoBag) == 0 {
 		return
 	}
-	s.ammoBag = s.ammoBag[s.index:]
+
+	var flag bool
+	for i := 0; i < len(s.ammoBag); i++ {
+
+		if s.ammoBag[i] != nil {
+			index = i
+			flag = true
+			break
+		}
+	}
+
+	if flag {
+		s.ammoBag = s.ammoBag[index:]
+	} else if index == 0 {
+		s.ammoBag = s.ammoBag[0:0]
+		atomic.StoreUint32(&s.currentWindowStartId, atomic.LoadUint32(&s.sendId))
+		return
+	}
 
 	if len(s.ammoBag) == 0 {
-		atomic.AddUint32(&s.currentWindowStartId, s.index)
-		atomic.StoreUint32(&s.index, 0)
+		atomic.AddUint32(&s.currentWindowStartId, uint32(index))
 		return
 	}
 
 	atomic.StoreUint32(&s.currentWindowStartId, s.ammoBag[0].Id)
-	atomic.StoreUint32(&s.index, 0)
 
 }
 
@@ -332,9 +359,20 @@ func (s *Sniper) shooter() {
 
 func (s *Sniper) ack(id uint32) {
 
-	cid := atomic.LoadUint32(&s.ackId)
-	if cid < id {
-		atomic.CompareAndSwapUint32(&s.ackId, cid, id)
+	s.ackLock.Lock()
+
+	for i := 0; i < len(s.ackBuff); i++ {
+		if s.ackBuff[i] == id {
+			s.ackLock.Unlock()
+			return
+		}
+	}
+
+	s.ackBuff = append(s.ackBuff, id)
+
+	s.ackLock.Unlock()
+	if len(s.ackBuff) > int(s.packageSize/4) {
+		s._ackSender()
 	}
 
 	_ = s.ackSign.Pass()
@@ -342,28 +380,42 @@ func (s *Sniper) ack(id uint32) {
 }
 
 // timed trigger send ack
-func (s *Sniper) ackSender() {
+func (s *Sniper) ackTimer() {
 
 	timer := time.NewTimer(time.Duration(DEFAULT_INIT_DELAY_ACK))
 	for {
 
-		id := atomic.LoadUint32(&s.ackId)
-		if id == 0 {
+		s._ackSender()
 
-			err := s.ackSign.Block()
-			if err != nil {
-				return
-			}
-			continue
+		select {
+		case <-timer.C:
+		case <-s.closeChan:
+			return
+		}
 
+		timer.Reset(time.Duration(s.rtt / 2))
+	}
+}
+
+func (s *Sniper) _ackSender() {
+	s.ackLock.Lock()
+	defer s.ackLock.Unlock()
+
+	l := len(s.ackBuff)
+	if l != 0 {
+
+		b := make([]byte, l*4)
+
+		for i := 0; i < len(s.ackBuff); i++ {
+			binary.BigEndian.PutUint32(b[4*i:(i+1)*4], s.ackBuff[i])
 		}
 
 		ammo := protocol.Ammo{
-			Id:   id,
 			Kind: protocol.ACK,
-			Body: nil,
+			Body: b,
 		}
-		fmt.Println("ack", id)
+
+		s.ackBuff = nil
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
 		if err != nil {
@@ -374,91 +426,33 @@ func (s *Sniper) ackSender() {
 				s.errorContainer.Store(errors.New(err.Error()))
 			}
 		}
-
-		//atomic.CompareAndSwapUint32(&s.ackId, id, 0)
-
-		select {
-		case <-timer.C:
-		case <-s.closeChan:
-			return
-		}
-
-		timer.Reset(time.Duration(s.rtt / 2))
-
 	}
 }
 
 // receive ack
-func (s *Sniper) score(id uint32) {
+func (s *Sniper) score(ids []uint32) {
 	s.mu.Lock()
 
-	if id < atomic.LoadUint32(&s.currentWindowStartId) {
-		s.mu.Unlock()
-		return
-	}
+	for _, id := range ids {
 
-	index := int(id) - int(atomic.LoadUint32(&s.currentWindowStartId))
-
-	if index > len(s.ammoBag) {
-		s.mu.Unlock()
-		return
-	}
-
-	atomic.StoreUint32(&s.index, uint32(index))
-
-	if id == s.latestAckId {
-		s.lostCount++
-
-		if s.lostCount > 2 {
-
-			//if index >= len(s.ammoBag) {
-			//	_ = s.writerBlocker.Pass()
-			//	_, _ = s.conn.WriteTo(protocol.Marshal(protocol.Ammo{
-			//		Kind: protocol.OUTOFAMMO,
-			//		Body: nil,
-			//	}), s.aim)
-			//	s.mu.Unlock()
-			//	return
-			//}
-
-			s.zoomoutWin()
-
-			s.lostCount = 0
-			if len(s.ammoBag) > 0 {
-				s.mu.Unlock()
-				s.shoot()
-			} else {
-				s.mu.Unlock()
-			}
-
+		if id < atomic.LoadUint32(&s.currentWindowStartId) {
+			s.mu.Unlock()
 			return
 		}
 
-	} else {
-		s.lostCount = 0
-		s.latestAckId = id
-	}
+		index := int(id) - int(atomic.LoadUint32(&s.currentWindowStartId))
 
-	// now send window is send clean
-	if id >= atomic.LoadUint32(&s.currentWindowEndId) {
-
-		s.expandWin()
-
-		_ = s.writerBlocker.Pass()
-
-		if len(s.ammoBag) > 0 {
+		if index >= len(s.ammoBag) {
 			s.mu.Unlock()
-			s.shoot()
-		} else {
-			s.mu.Unlock()
+			return
 		}
-
-	} else {
-		s.mu.Unlock()
+		s.ammoBag[index] = nil
 	}
+
+	s.mu.Unlock()
+	s.shoot()
 
 	return
-
 }
 
 func (s *Sniper) zoomoutWin() {
@@ -480,7 +474,6 @@ func (s *Sniper) expandWin() {
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
-	fmt.Println(ammo.Id)
 	//if ammo.Kind == protocol.OUTOFAMMO {
 	//	atomic.StoreUint32(&s.ackId, 0)
 	//	return
@@ -489,30 +482,11 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 
-	var flag bool
-
 	bagIndex := ammo.Id - s.beShotCurrentId
 
 	// id < currentId , lost the ack
-	if ammo.Id < s.beShotCurrentId {
 
-		var id uint32
-		for k, v := range s.beShotAmmoBag {
-
-			if v == nil {
-				id = s.beShotCurrentId + uint32(k)
-				break
-			}
-		}
-
-		if id == 0 && !flag {
-			id = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
-		}
-
-		s.ack(id)
-
-		return
-	}
+	s.ack(ammo.Id)
 
 	if int(bagIndex) >= len(s.beShotAmmoBag) {
 		return
@@ -527,6 +501,7 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
 		blocks := make([][]byte, s.fecd.dataShards+s.fecd.parShards)
 		var empty int
+
 		for j := 0; j < s.fecd.dataShards+s.fecd.parShards && i < len(s.beShotAmmoBag); j++ {
 
 			if s.beShotAmmoBag[i] == nil {
@@ -564,22 +539,6 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 		s.beShotAmmoBag = s.beShotAmmoBag[anchor:]
 		s.beShotAmmoBag = append(s.beShotAmmoBag, make([]*protocol.Ammo, anchor)...)
 	}
-
-	var nid uint32
-	for k, v := range s.beShotAmmoBag {
-
-		if v == nil {
-			flag = true
-			nid = s.beShotCurrentId + uint32(k)
-			break
-		}
-	}
-
-	if nid == 0 && !flag {
-		nid = s.beShotCurrentId + uint32(len(s.beShotAmmoBag))
-	}
-
-	s.ack(nid)
 
 	if s.isClose {
 		return

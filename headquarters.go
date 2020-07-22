@@ -2,6 +2,7 @@ package sharpshooter
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"sharpshooter/protocol"
@@ -104,7 +105,7 @@ loop:
 		return nil, err
 	}
 
-	go sn.ackSender()
+	go sn.ackTimer()
 
 	sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
 	go sn.shooter()
@@ -145,7 +146,7 @@ func NewHeadquarters() *headquarters {
 
 func (h *headquarters) Accept() (*Sniper, error) {
 	sn := <-h.accept
-	go sn.ackSender()
+	go sn.ackTimer()
 	sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
 	go sn.shooter()
 	return sn, nil
@@ -250,7 +251,18 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 	switch msg.Kind {
 
 	case protocol.ACK:
-		sn.score(msg.Id)
+
+		l := len(msg.Body)
+		if l%4 != 0 {
+			return
+		}
+
+		ids := make([]uint32, 0, l/4)
+		for i := 0; i < l; i += 4 {
+			ids = append(ids, binary.BigEndian.Uint32(msg.Body[i:i+4]))
+		}
+
+		sn.score(ids)
 
 	case protocol.CLOSE:
 
