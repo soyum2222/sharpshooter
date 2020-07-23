@@ -1,8 +1,8 @@
 package sharpshooter
 
 import (
+	"github.com/soyum2222/sharpshooter/protocol"
 	"net"
-	"sharpshooter/protocol"
 	"time"
 )
 

@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/soyum2222/sharpshooter"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"sharpshooter"
 	"time"
 )
 

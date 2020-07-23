@@ -2,6 +2,8 @@ package sharpshooter
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"github.com/klauspost/reedsolomon"
 )
 
@@ -30,8 +32,11 @@ func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 	//		copy(shards[i], b)
 	//	}
 	//}
-	des := make([]byte, len(b))
-	copy(des, b)
+	des := make([]byte, len(b)+4)
+
+	binary.BigEndian.PutUint32(des[0:4], uint32(len(b)))
+
+	copy(des[4:], b)
 
 	shards, err := e.enc.Split(des)
 	if err != nil {
@@ -83,7 +88,15 @@ func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 		return nil, err
 	}
 
-	err = d.dec.Join(buff, b, len(b[0])*d.dataShards)
+	if len(b[0]) < 4 {
+		return nil, errors.New("bad bytes")
+	}
+
+	lenght := binary.BigEndian.Uint32(b[0][:4])
+
+	b[0] = b[0][4:]
+
+	err = d.dec.Join(buff, b, int(lenght))
 	if err != nil {
 		return nil, err
 	}

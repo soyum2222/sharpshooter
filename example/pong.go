@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/soyum2222/sharpshooter"
 	"io"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
-	"sharpshooter"
 )
 
 func main() {

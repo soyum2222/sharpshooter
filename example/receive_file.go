@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/soyum2222/sharpshooter"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"sharpshooter"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"github.com/soyum2222/sharpshooter/protocol"
 	"net"
-	"sharpshooter/protocol"
 	"sync/atomic"
 	"time"
 )

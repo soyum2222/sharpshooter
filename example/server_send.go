@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/soyum2222/sharpshooter"
 	"io"
 	"net"
 	"os"
-	"sharpshooter"
 )
 
 func main() {

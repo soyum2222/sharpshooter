@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/soyum2222/sharpshooter"
 	"io"
 	"net/http"
 	_ "net/http/pprof"
-	"sharpshooter"
 	"time"
 )
 

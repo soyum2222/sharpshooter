@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sharpshooter"
+	"github.com/soyum2222/sharpshooter"
 )
 
 func main() {

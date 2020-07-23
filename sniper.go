@@ -3,10 +3,10 @@ package sharpshooter
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/soyum2222/sharpshooter/protocol"
+	"github.com/soyum2222/sharpshooter/tool/block"
 	"math"
 	"net"
-	"sharpshooter/protocol"
-	"sharpshooter/tool/block"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -111,8 +111,8 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
-		fecd:          newFecDecoder(10, 3),
-		fece:          newFecEncoder(10, 3),
+		fecd:          newFecDecoder(4, 1),
+		fece:          newFecEncoder(4, 1),
 	}
 
 	sn.isDelay = true
@@ -286,7 +286,12 @@ func (s *Sniper) shoot() {
 	}
 	rto := atomic.LoadInt64(&s.rto)
 
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(500*time.Millisecond))) * time.Nanosecond)
+	// Maybe overflow
+	if rto <= 0 {
+		rto = int64(250 * time.Millisecond)
+	}
+
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(250*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
@@ -561,30 +566,6 @@ loop:
 
 	n += copy(b, s.receiveCache)
 	s.receiveCache = s.receiveCache[n:]
-
-	//for len(s.beShotAmmoBag) != 0 && s.beShotAmmoBag[0] != nil {
-	//
-	//	cpn := copy(b[n:], s.beShotAmmoBag[0].Body)
-	//
-	//	n += cpn
-	//
-	//	if n == len(b) {
-	//		if cpn < len(s.beShotAmmoBag[0].Body) {
-	//			s.beShotAmmoBag[0].Body = s.beShotAmmoBag[0].Body[cpn:]
-	//		} else {
-	//			s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-	//			s.beShotCurrentId++
-	//		}
-	//		break
-	//
-	//	} else {
-	//
-	//		s.beShotAmmoBag = append(s.beShotAmmoBag[1:], nil)
-	//		s.beShotCurrentId++
-	//		continue
-	//	}
-	//
-	//}
 
 	s.bemu.Unlock()
 
