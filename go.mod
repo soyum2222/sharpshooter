@@ -1,4 +1,4 @@
-module sharpshooter
+module github.com/soyum2222/sharpshooter
 
 go 1.14
 
