@@ -753,13 +753,6 @@ loop:
 
 	}
 
-	select {
-
-	case <-s.closeChan:
-		s.ackSign.Close()
-		close(s.readBlock)
-	}
-
 	s.isClose = true
 
 }
