@@ -11,21 +11,17 @@ type fecEncoder struct {
 	dataShards int
 	parShards  int
 	enc        reedsolomon.Encoder
-	buff       []byte
 }
 
 func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 
-	if cap(e.buff) < len(b) {
-		e.buff = make([]byte, 4, len(b))
-	}
+	des := make([]byte, len(b)+4)
 
-	binary.BigEndian.PutUint32(e.buff[0:4], uint32(len(b)))
+	binary.BigEndian.PutUint32(des[0:4], uint32(len(b)))
 
-	e.buff = append(e.buff, b...)
+	copy(des[4:], b)
 
-	// TODO here can be optimization
-	shards, err := e.enc.Split(e.buff)
+	shards, err := e.enc.Split(des)
 	if err != nil {
 		return nil, err
 	}
@@ -34,8 +30,6 @@ func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	e.buff = e.buff[:4]
 
 	return shards, nil
 
@@ -56,14 +50,12 @@ type fecDecoder struct {
 	dataShards int
 	parShards  int
 	dec        reedsolomon.Encoder
-	buff       *bytes.Buffer
 }
 
 func newFecDecoder(dataShards, parShards int) *fecDecoder {
 	fec := fecDecoder{
 		dataShards: dataShards,
 		parShards:  parShards,
-		buff:       bytes.NewBuffer(nil),
 	}
 
 	fec.dec, _ = reedsolomon.New(dataShards, parShards)
@@ -73,8 +65,7 @@ func newFecDecoder(dataShards, parShards int) *fecDecoder {
 
 func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 
-	defer d.buff.Reset()
-
+	buff := bytes.NewBuffer(nil)
 	err := d.dec.Reconstruct(b)
 	if err != nil {
 		return nil, err
@@ -84,14 +75,14 @@ func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 		return nil, errors.New("bad bytes")
 	}
 
-	length := binary.BigEndian.Uint32(b[0][:4])
+	lenght := binary.BigEndian.Uint32(b[0][:4])
 
 	b[0] = b[0][4:]
 
-	err = d.dec.Join(d.buff, b, int(length))
+	err = d.dec.Join(buff, b, int(lenght))
 	if err != nil {
 		return nil, err
 	}
 
-	return d.buff.Bytes(), nil
+	return buff.Bytes(), nil
 }
