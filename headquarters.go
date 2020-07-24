@@ -156,22 +156,14 @@ func (h *headquarters) Close() {
 
 }
 
-func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) error {
+func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) (int, error) {
 
 	sn, ok := h.Snipers[addr.String()]
 	if !ok {
-		return errors.New("the addr is not dial")
+		return 0, errors.New("the addr is not dial")
 	}
 
-	select {
-
-	case sn.ammoBagCache <- protocol.Unmarshal(b):
-		return nil
-
-	case <-sn.errorSign:
-		return sn.errorContainer.Load().(error)
-
-	}
+	return sn.Write(b)
 
 }
 
@@ -266,9 +258,9 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 	case protocol.CLOSE:
 
-		if msg.Id == sn.beShotCurrentId {
+		if msg.Id == sn.rcvId {
 
-			sn.beShotCurrentId++
+			sn.rcvId++
 
 			sn.ack(msg.Id)
 
@@ -345,7 +337,7 @@ func (h *headquarters) ReadFrom(b []byte) (int, net.Addr, error) {
 
 		for _, v := range h.Snipers {
 
-			if len(v.beShotAmmoBag) == 0 || v.beShotAmmoBag[0] == nil {
+			if len(v.rcvAmmoBag) == 0 || v.rcvAmmoBag[0] == nil {
 				continue
 			}
 

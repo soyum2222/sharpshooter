@@ -160,7 +160,7 @@ func BenchmarkWrap(b *testing.B) {
 		for k := range b {
 			b[k] = uint8(k)
 		}
-		sn.maxWindows = (1 << 20) / 1024
+		sn.maxWin = (1 << 20) / 1024
 
 		//sn.flush()
 		sn.wrap()
