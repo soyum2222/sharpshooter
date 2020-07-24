@@ -2,8 +2,8 @@ package sharpshooter
 
 import (
 	"fmt"
+	"github.com/soyum2222/sharpshooter/protocol"
 	"net"
-	"sharpshooter/protocol"
 	"testing"
 	"time"
 )
@@ -68,8 +68,6 @@ func TestSendAndReceive(t *testing.T) {
 func TestSniper_DeferSend(t *testing.T) {
 
 	sn := NewSniper(nil, nil)
-
-	sn.sendCacheSize = 1
 
 	go func() {
 
@@ -162,7 +160,6 @@ func BenchmarkWrap(b *testing.B) {
 		}
 		sn.maxWin = (1 << 20) / 1024
 
-		//sn.flush()
 		sn.wrap()
 
 	}
@@ -192,37 +189,4 @@ func BenchmarkShot(b *testing.B) {
 
 		h.Snipers[addr.String()].shoot()
 	}
-}
-
-func BenchmarkRouting(b *testing.B) {
-
-	h := NewHeadquarters()
-	var addr = net.UDPAddr{}
-	h.Snipers[addr.String()] = NewSniper(nil, nil)
-	go func() {
-
-		b := make([]byte, 1<<20)
-		for {
-			h.Snipers[addr.String()].Read(b)
-		}
-	}()
-	for i := 0; i < b.N; i++ {
-
-		b := make([]byte, 1024)
-
-		for k := range b {
-			b[k] = uint8(k)
-		}
-
-		ammo := protocol.Ammo{
-			Id:   uint32(i),
-			Kind: protocol.NORMAL,
-			Body: b,
-		}
-		a := protocol.Unmarshal(protocol.Marshal(ammo))
-
-		h.routing(a, &addr)
-
-	}
-
 }

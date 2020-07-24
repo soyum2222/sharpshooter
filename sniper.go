@@ -24,7 +24,7 @@ const (
 	DEFAULT_INIT_HEALTHTICKER                  = 3
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 10
 	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
-	DEFAULT_INIT_RTO_UNIT                      = float64(500 * time.Millisecond)
+	DEFAULT_INIT_RTO_UNIT                      = float64(200 * time.Millisecond)
 	DEFAULT_INIT_DELAY_ACK                     = float64(200 * time.Millisecond)
 )
 
@@ -228,7 +228,7 @@ func (s *Sniper) shoot() {
 
 		var currentWindowEndId uint32
 
-		for k, _ := range s.ammoBag {
+		for k := range s.ammoBag {
 
 			if s.ammoBag[k] == nil {
 				continue
@@ -270,16 +270,16 @@ func (s *Sniper) shoot() {
 		rto = int64(250 * time.Millisecond)
 	}
 
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(250*time.Millisecond))) * time.Nanosecond)
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(1000*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
 func (s *Sniper) flush() {
 
 	defer func() {
-		remain := int64(s.maxWin)*int64(s.packageSize)*2 - int64(len(s.sendCache))
+		remain := int64(s.maxWin)*(s.packageSize)*2 - int64(len(s.sendCache))
 		if remain > 0 {
-			s.writerBlocker.Pass()
+			_ = s.writerBlocker.Pass()
 		}
 	}()
 
@@ -290,7 +290,6 @@ func (s *Sniper) flush() {
 
 	var flag bool
 	for i := 0; i < len(s.ammoBag); i++ {
-
 		if s.ammoBag[i] != nil {
 			index = i
 			flag = true
@@ -414,7 +413,7 @@ func (s *Sniper) _ackSender() {
 }
 
 // receive ack
-func (s *Sniper) score(ids []uint32) {
+func (s *Sniper) handleAck(ids []uint32) {
 	s.mu.Lock()
 
 	for _, id := range ids {
@@ -440,28 +439,14 @@ func (s *Sniper) score(ids []uint32) {
 }
 
 func (s *Sniper) zoomoutWin() {
-	//old := s.maxWin
-	//s.maxWin -= int32(math.Abs(float64(s.maxWin-s.oldWindows)) / 2)
-	//s.oldWindows = old
-
 	s.maxWin -= 1
-	//fmt.Println(s.maxWin)
-
 }
 
 func (s *Sniper) expandWin() {
-
 	s.maxWin += 1
-	//fmt.Println(s.maxWin)
-	//s.maxWin += int32(math.Abs(float64(s.maxWin-s.oldWindows)) / 2)
 }
 
 func (s *Sniper) beShot(ammo *protocol.Ammo) {
-
-	//if ammo.Kind == protocol.OUTOFAMMO {
-	//	atomic.StoreUint32(&s.ackId, 0)
-	//	return
-	//}
 
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
@@ -518,7 +503,7 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 
 	// cut off
 	if anchor > len(s.rcvAmmoBag) {
-		s.rcvAmmoBag = make([]*protocol.Ammo, DEFAULT_INIT_RECEWIND)
+		s.rcvAmmoBag = s.rcvAmmoBag[:0]
 	} else {
 		s.rcvAmmoBag = s.rcvAmmoBag[anchor:]
 		s.rcvAmmoBag = append(s.rcvAmmoBag, make([]*protocol.Ammo, anchor)...)
@@ -571,6 +556,7 @@ loop:
 }
 
 func (s *Sniper) wrap() {
+
 loop:
 	remain := s.maxWin - int32(len(s.ammoBag))
 
@@ -587,15 +573,15 @@ loop:
 	// anchor is mark sendCache current op index
 	var anchor int64
 
-	if int(l) < s.fece.dataShards*DEFAULT_INIT_PACKSIZE {
+	if int64(l) < int64(s.fece.dataShards)*s.packageSize {
 		anchor = int64(l)
 	} else {
-		anchor = int64(s.fece.dataShards * DEFAULT_INIT_PACKSIZE)
+		anchor = int64(s.fece.dataShards) * s.packageSize
 	}
 
-	// TODO this block will not be GC , so maybe can be reused here , I will try
 	body := s.sendCache[:anchor]
 
+	// body will be copied
 	shard, err := s.fece.encode(body)
 	if err != nil {
 		s.errorContainer.Store(err)
@@ -613,12 +599,15 @@ loop:
 	for _, v := range shard {
 
 		id := atomic.AddUint32(&s.sendId, 1)
+
 		ammo := protocol.Ammo{
 			Id:   id - 1,
 			Kind: protocol.NORMAL,
 			Body: v,
 		}
+
 		s.ammoBag = append(s.ammoBag, &ammo)
+
 	}
 
 	goto loop
@@ -630,11 +619,6 @@ func (s *Sniper) Write(b []byte) (n int, err error) {
 		return 0, CLOSEERROR
 	}
 	return s.writer(b)
-}
-
-func (s *Sniper) OpenDeferSend() {
-	s.writer = s.delaySend
-	s.isDelay = true
 }
 
 func (s *Sniper) delaySend(b []byte) (n int, err error) {
@@ -655,7 +639,7 @@ loop:
 	default:
 
 	}
-	remain := int64(s.maxWin)*int64(s.packageSize)*2 - int64(len(s.sendCache))
+	remain := int64(s.maxWin)*(s.packageSize)*2 - int64(len(s.sendCache))
 
 	if remain <= 0 {
 		s.mu.Unlock()
@@ -669,8 +653,6 @@ loop:
 		// if appending sendCache don't have enough cap , will malloc a new memory
 		// old memory will be GC
 		// if the slice cap too small , then malloc new memory often happen , this will affect performance
-		//
-
 		s.sendCache = append(s.sendCache, b...)
 		s.addEffectFlow(len(b))
 

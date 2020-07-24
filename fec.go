@@ -11,34 +11,21 @@ type fecEncoder struct {
 	dataShards int
 	parShards  int
 	enc        reedsolomon.Encoder
+	buff       []byte
 }
 
 func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 
-	//shards := make([][]byte, e.dataShards*e.parShards)
-	//
-	//for k := range shards {
-	//	shards[k] = make([]byte, DEFAULT_INIT_PACKSIZE)
-	//}
-	//
-	//for i := 0; int64(i) < e.dataShards; i++ {
-	//
-	//	if len(b) > DEFAULT_INIT_PACKSIZE {
-	//
-	//		copy(shards[i], b[:DEFAULT_INIT_PACKSIZE])
-	//		b = b[DEFAULT_INIT_PACKSIZE:]
-	//
-	//	} else if len(b) != 0 {
-	//		copy(shards[i], b)
-	//	}
-	//}
-	des := make([]byte, len(b)+4)
+	if cap(e.buff) < len(b) {
+		e.buff = make([]byte, 4, len(b))
+	}
 
-	binary.BigEndian.PutUint32(des[0:4], uint32(len(b)))
+	binary.BigEndian.PutUint32(e.buff[0:4], uint32(len(b)))
 
-	copy(des[4:], b)
+	e.buff = append(e.buff, b...)
 
-	shards, err := e.enc.Split(des)
+	// TODO here can be optimization
+	shards, err := e.enc.Split(e.buff)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +34,8 @@ func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	e.buff = e.buff[:4]
 
 	return shards, nil
 
@@ -67,12 +56,14 @@ type fecDecoder struct {
 	dataShards int
 	parShards  int
 	dec        reedsolomon.Encoder
+	buff       *bytes.Buffer
 }
 
 func newFecDecoder(dataShards, parShards int) *fecDecoder {
 	fec := fecDecoder{
 		dataShards: dataShards,
 		parShards:  parShards,
+		buff:       bytes.NewBuffer(nil),
 	}
 
 	fec.dec, _ = reedsolomon.New(dataShards, parShards)
@@ -82,7 +73,8 @@ func newFecDecoder(dataShards, parShards int) *fecDecoder {
 
 func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 
-	buff := bytes.NewBuffer(nil)
+	defer d.buff.Reset()
+
 	err := d.dec.Reconstruct(b)
 	if err != nil {
 		return nil, err
@@ -92,15 +84,14 @@ func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 		return nil, errors.New("bad bytes")
 	}
 
-	lenght := binary.BigEndian.Uint32(b[0][:4])
+	length := binary.BigEndian.Uint32(b[0][:4])
 
 	b[0] = b[0][4:]
 
-	err = d.dec.Join(buff, b, int(lenght))
+	err = d.dec.Join(d.buff, b, int(length))
 	if err != nil {
 		return nil, err
 	}
 
-	return buff.Bytes(), nil
-
+	return d.buff.Bytes(), nil
 }

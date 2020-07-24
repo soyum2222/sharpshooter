@@ -254,7 +254,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 			ids = append(ids, binary.BigEndian.Uint32(msg.Body[i:i+4]))
 		}
 
-		sn.score(ids)
+		sn.handleAck(ids)
 
 	case protocol.CLOSE:
 
@@ -285,7 +285,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 					sn.ackSign.Close()
 					close(sn.closeChan)
 					if sn.noLeader {
-						sn.conn.Close()
+						_ = sn.conn.Close()
 					}
 					sn.bemu.Unlock()
 					_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
