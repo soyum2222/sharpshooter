@@ -45,7 +45,7 @@ type Sniper struct {
 	rcvId          uint32
 	sendWinId      uint32
 	sendBottom     uint32
-	placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
+	//placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
 	packageSize    int64
 	rtt            int64
 	rto            int64
