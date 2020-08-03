@@ -457,13 +457,16 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 	bagIndex := int(ammo.Id) - int(s.rcvId)
 
 	// id < currentId , lost the ack
-
-	s.ack(ammo.Id)
+	if ammo.Id < s.rcvId {
+		s.ack(ammo.Id)
+		return
+	}
 
 	if bagIndex >= len(s.rcvAmmoBag) {
 		return
 	}
 
+	s.ack(ammo.Id)
 	if s.rcvAmmoBag[bagIndex] == nil {
 		s.rcvAmmoBag[bagIndex] = ammo
 	}
