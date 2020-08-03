@@ -46,14 +46,14 @@ type Sniper struct {
 	sendWinId      uint32
 	sendBottom     uint32
 	//placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
-	packageSize    int64
-	rtt            int64
-	rto            int64
-	timeFlag       int64
-	totalFlow      int64 // statistics total flow used
-	effectiveFlow  int64 // statistics effective flow
-	sendCache      []byte
-	writer         func(p []byte) (n int, err error)
+	packageSize   int64
+	rtt           int64
+	rto           int64
+	timeFlag      int64
+	totalFlow     int64 // statistics total flow used
+	effectiveFlow int64 // statistics effective flow
+	sendCache     []byte
+	writer        func(p []byte) (n int, err error)
 
 	aim            *net.UDPAddr
 	conn           *net.UDPConn
@@ -451,13 +451,16 @@ func (s *Sniper) beShot(ammo *protocol.Ammo) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 
-	bagIndex := ammo.Id - s.rcvId
+	// eg: int8(0000 0000) - int8(1111 1111) = int8(0 - -1) = 1
+	// eg: int8(1000 0001) - int8(1000 0000) = int8(-127 - -128) = 1
+	// eg: int8(1000 0000) - int8(0111 1111) = int8(-128 - 127) = 1
+	bagIndex := int(ammo.Id) - int(s.rcvId)
 
 	// id < currentId , lost the ack
 
 	s.ack(ammo.Id)
 
-	if int(bagIndex) >= len(s.rcvAmmoBag) {
+	if bagIndex >= len(s.rcvAmmoBag) {
 		return
 	}
 
