@@ -706,7 +706,7 @@ func (s *Sniper) monitor() {
 	}
 }
 
-func (s *Sniper) Close() {
+func (s *Sniper) Close() error {
 
 	s.clock.Lock()
 	defer s.clock.Unlock()
@@ -714,8 +714,11 @@ func (s *Sniper) Close() {
 	var try int
 
 loop:
-	if s.isClose || try > 10 {
-		return
+	if s.isClose {
+		return errors.New("is closed")
+	}
+	if try > 10 {
+		return errors.New("over try")
 	}
 
 	s.mu.Lock()
@@ -760,5 +763,7 @@ loop:
 	}
 
 	s.isClose = true
+
+	return nil
 
 }

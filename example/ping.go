@@ -19,8 +19,6 @@ func main() {
 		panic(err)
 	}
 
-	conn.OpenDeferSend()
-
 	s := "ping"
 	lenght := make([]byte, 4)
 	for {
