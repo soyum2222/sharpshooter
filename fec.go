@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/klauspost/reedsolomon"
+	"math"
 )
 
 type fecEncoder struct {
@@ -15,7 +16,14 @@ type fecEncoder struct {
 
 func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 
-	des := make([]byte, len(b)+4)
+	l := len(b)
+
+	var des []byte
+	if int(math.Ceil(float64((l+4)/e.dataShards))) < 4 {
+		des = make([]byte, e.dataShards*4)
+	} else {
+		des = make([]byte, len(b)+4)
+	}
 
 	binary.BigEndian.PutUint32(des[0:4], uint32(len(b)))
 
