@@ -162,8 +162,8 @@ func (s *Sniper) OpenStaFlow() {
 }
 
 func (s *Sniper) OpenFec(dataShards, parShards int) {
-	s.fecd = newFecDecoder(4, 1)
-	s.fece = newFecEncoder(4, 1)
+	s.fecd = newFecDecoder(dataShards, parShards)
+	s.fece = newFecEncoder(dataShards, parShards)
 	s.wrap = s.wrapfec
 	s.rcv = s.rcvfec
 }
