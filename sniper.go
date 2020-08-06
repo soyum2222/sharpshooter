@@ -286,7 +286,7 @@ func (s *Sniper) shoot() {
 		rto = int64(250 * time.Millisecond)
 	}
 
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(1000*time.Millisecond))) * time.Nanosecond)
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(100*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
@@ -340,9 +340,9 @@ func (s *Sniper) shooter() {
 		case <-s.timeoutTimer.C:
 
 			s.rto = s.rto * 2
-			if s.maxWin > 1<<4 {
-				s.zoomoutWin()
-			}
+			//if s.maxWin > 1<<4 {
+			//	s.zoomoutWin()
+			//}
 
 			break
 
