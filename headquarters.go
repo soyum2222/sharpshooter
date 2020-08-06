@@ -325,7 +325,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 		sn.calrto(t - sn.timeFlag)
 
 	case protocol.NORMAL:
-		sn.beShot(&msg)
+		sn.rcv(&msg)
 
 	}
 

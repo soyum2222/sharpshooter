@@ -55,22 +55,29 @@ type Sniper struct {
 	sendCache     []byte
 	writer        func(p []byte) (n int, err error)
 
-	aim            *net.UDPAddr
-	conn           *net.UDPConn
-	timeoutTimer   *time.Timer
-	healthTimer    *time.Timer
-	ammoBag        []*protocol.Ammo
-	rcvAmmoBag     []*protocol.Ammo
-	rcvCache       []byte
-	readBlock      chan struct{}
-	handShakeSign  chan struct{}
-	ackSign        *block.Blocker
-	writerBlocker  *block.Blocker
-	closeChan      chan struct{}
-	stopShotSign   chan struct{}
-	errorSign      chan struct{}
-	fece           *fecEncoder
-	fecd           *fecDecoder
+	aim           *net.UDPAddr
+	conn          *net.UDPConn
+	timeoutTimer  *time.Timer
+	healthTimer   *time.Timer
+	ammoBag       []*protocol.Ammo
+	rcvAmmoBag    []*protocol.Ammo
+	rcvCache      []byte
+	readBlock     chan struct{}
+	handShakeSign chan struct{}
+	ackSign       *block.Blocker
+	writerBlocker *block.Blocker
+	closeChan     chan struct{}
+	stopShotSign  chan struct{}
+	errorSign     chan struct{}
+
+	wrap func()
+	rcv  func(ammo *protocol.Ammo)
+
+	// fec
+	fec  bool
+	fece *fecEncoder
+	fecd *fecDecoder
+
 	errorContainer atomic.Value
 	ackCache       []uint32
 
@@ -104,9 +111,11 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
-		fecd:          newFecDecoder(4, 1),
-		fece:          newFecEncoder(4, 1),
 	}
+
+	sn.rcv = sn.rcvnoml
+
+	sn.wrap = sn.wrapnoml
 
 	sn.isDelay = true
 	sn.writer = sn.delaySend
@@ -152,6 +161,13 @@ func (s *Sniper) OpenStaFlow() {
 	s.staSwitch = true
 }
 
+func (s *Sniper) OpenFec(dataShards, parShards int) {
+	s.fecd = newFecDecoder(4, 1)
+	s.fece = newFecEncoder(4, 1)
+	s.wrap = s.wrapfec
+	s.rcv = s.rcvfec
+}
+
 func (s *Sniper) healthMonitor() {
 
 	for {
@@ -166,7 +182,6 @@ func (s *Sniper) healthMonitor() {
 				}
 
 				_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
-					Id:   0,
 					Kind: protocol.HEALTHCHECK,
 				}), s.aim)
 
@@ -263,6 +278,7 @@ func (s *Sniper) shoot() {
 		atomic.StoreInt32(&s.shootStatus, 0)
 
 	}
+
 	rto := atomic.LoadInt64(&s.rto)
 
 	// Maybe overflow
@@ -444,180 +460,6 @@ func (s *Sniper) zoomoutWin() {
 
 func (s *Sniper) expandWin() {
 	s.maxWin += 1
-}
-
-func (s *Sniper) beShot(ammo *protocol.Ammo) {
-
-	s.bemu.Lock()
-	defer s.bemu.Unlock()
-
-	// eg: int8(0000 0000) - int8(1111 1111) = int8(0 - -1) = 1
-	// eg: int8(1000 0001) - int8(1000 0000) = int8(-127 - -128) = 1
-	// eg: int8(1000 0000) - int8(0111 1111) = int8(-128 - 127) = 1
-	bagIndex := int(ammo.Id) - int(s.rcvId)
-
-	// id < currentId , lost the ack
-	if ammo.Id < s.rcvId {
-		s.ack(ammo.Id)
-		return
-	}
-
-	if bagIndex >= len(s.rcvAmmoBag) {
-		return
-	}
-
-	s.ack(ammo.Id)
-	if s.rcvAmmoBag[bagIndex] == nil {
-		s.rcvAmmoBag[bagIndex] = ammo
-	}
-
-	var anchor int
-	for i := 0; i < len(s.rcvAmmoBag); {
-
-		blocks := make([][]byte, s.fecd.dataShards+s.fecd.parShards)
-		var empty int
-
-		for j := 0; j < s.fecd.dataShards+s.fecd.parShards && i < len(s.rcvAmmoBag); j++ {
-
-			if s.rcvAmmoBag[i] == nil {
-				blocks[j] = nil
-				empty++
-			} else {
-				blocks[j] = s.rcvAmmoBag[i].Body
-			}
-
-			i++
-		}
-
-		if empty > s.fecd.parShards {
-			break
-		}
-
-		data, err := s.fecd.decode(blocks)
-		if err == nil {
-
-			anchor += s.fecd.dataShards + s.fecd.parShards
-
-			s.rcvCache = append(s.rcvCache, data...)
-
-			s.rcvId += uint32(s.fecd.dataShards + s.fecd.parShards)
-
-		} else {
-			break
-		}
-	}
-
-	// cut off
-	if anchor > len(s.rcvAmmoBag) {
-		s.rcvAmmoBag = s.rcvAmmoBag[:0]
-	} else {
-		s.rcvAmmoBag = s.rcvAmmoBag[anchor:]
-		s.rcvAmmoBag = append(s.rcvAmmoBag, make([]*protocol.Ammo, anchor)...)
-	}
-
-	if s.isClose {
-		return
-	}
-
-	select {
-
-	case s.readBlock <- struct{}{}:
-
-	default:
-
-	}
-}
-
-func (s *Sniper) Read(b []byte) (n int, err error) {
-
-loop:
-
-	s.bemu.Lock()
-
-	n += copy(b, s.rcvCache)
-	s.rcvCache = s.rcvCache[n:]
-
-	s.bemu.Unlock()
-
-	if n <= 0 {
-		select {
-
-		case _, ok := <-s.readBlock:
-			if !ok {
-				return 0, CLOSEERROR
-			}
-			goto loop
-
-		case _, _ = <-s.closeChan:
-			return 0, CLOSEERROR
-
-		case <-s.errorSign:
-			return 0, s.errorContainer.Load().(error)
-
-		}
-
-	}
-
-	return
-}
-
-func (s *Sniper) wrap() {
-
-loop:
-	remain := s.maxWin - int32(len(s.ammoBag))
-
-	if remain <= 0 {
-		return
-	}
-
-	l := len(s.sendCache)
-
-	if l == 0 {
-		return
-	}
-
-	// anchor is mark sendCache current op index
-	var anchor int64
-
-	if int64(l) < int64(s.fece.dataShards)*s.packageSize {
-		anchor = int64(l)
-	} else {
-		anchor = int64(s.fece.dataShards) * s.packageSize
-	}
-
-	body := s.sendCache[:anchor]
-
-	// body will be copied
-	shard, err := s.fece.encode(body)
-	if err != nil {
-		s.errorContainer.Store(err)
-		select {
-		case <-s.errorSign:
-		default:
-			s.errorContainer.Store(errors.New(err.Error()))
-			close(s.errorSign)
-		}
-		return
-	}
-
-	s.sendCache = s.sendCache[anchor:]
-
-	for _, v := range shard {
-
-		id := atomic.AddUint32(&s.sendId, 1)
-
-		ammo := protocol.Ammo{
-			Id:   id - 1,
-			Kind: protocol.NORMAL,
-			Body: v,
-		}
-
-		s.ammoBag = append(s.ammoBag, &ammo)
-
-	}
-
-	goto loop
-
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {

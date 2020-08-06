@@ -14,7 +14,6 @@ func (s *Sniper) calrto(rtt int64) {
 		RTO := SRTT + int64(math.Max(DEFAULT_INIT_RTO_UNIT, float64(4*RTTVAR)))
 		s.rto = RTO
 		s.rtt = SRTT
-		//fmt.Println("rtt rto", s.rtt, s.rto)
 
 	}
 
