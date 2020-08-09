@@ -21,14 +21,14 @@ func main() {
 	conn.OpenStaFlow()
 	conn.OpenStaFlow()
 
-	info, err := os.Stat("./txt")
+	info, err := os.Stat("./source")
 	if err != nil {
 		panic(err)
 	}
 	size := info.Size()
 	fmt.Println(size)
 
-	file, err := os.Open("./txt")
+	file, err := os.Open("./source")
 
 	if err != nil {
 		panic(err)

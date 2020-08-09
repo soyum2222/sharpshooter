@@ -18,7 +18,7 @@ const (
 )
 
 const (
-	DEFAULT_INIT_SENDWIND                      = 1024
+	DEFAULT_INIT_SENDWIND                      = 64
 	DEFAULT_INIT_RECEWIND                      = 1 << 10
 	DEFAULT_INIT_PACKSIZE                      = 1024
 	DEFAULT_INIT_HEALTHTICKER                  = 3
@@ -286,7 +286,7 @@ func (s *Sniper) shoot() {
 		rto = int64(250 * time.Millisecond)
 	}
 
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(100*time.Millisecond))) * time.Nanosecond)
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(200*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
@@ -388,11 +388,13 @@ func (s *Sniper) ackTimer() {
 
 		select {
 		case <-timer.C:
+
 		case <-s.closeChan:
+			timer.Stop()
 			return
 		}
 
-		timer.Reset(time.Duration(s.rtt / 2))
+		timer.Reset(time.Duration(math.Min(float64(s.rtt/2), float64(50*time.Millisecond))) * time.Nanosecond)
 	}
 }
 
@@ -414,7 +416,7 @@ func (s *Sniper) _ackSender() {
 			Body: b,
 		}
 
-		s.ackCache = nil
+		s.ackCache = s.ackCache[0:0]
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
 		if err != nil {
