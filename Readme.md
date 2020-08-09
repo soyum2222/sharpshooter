@@ -1,6 +1,9 @@
 
 ### Sharpshooter
 
+![GitHub](https://img.shields.io/github/license/soyum2222/sharpshooter?logo=Github&style=plastic)  ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/soyum2222/sharpshooter?logo=Github) ![GitHub watchers](https://img.shields.io/github/watchers/soyum2222/sharpshooter?logo=Github&style=social)  
+
+
 Sharpshooter is a reliability network protocol useing UDP.
     
 It is a connection-oriented protocol just like TCP.
