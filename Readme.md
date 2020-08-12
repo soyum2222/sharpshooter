@@ -2,7 +2,7 @@
 ## Sharpshooter
 
 
-![GitHub](https://img.shields.io/github/license/soyum2222/sharpshooter?logo=Github&style=plastic)  ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/soyum2222/sharpshooter?logo=Github) <img src="https://visits.myyou.top/sharpshooter/visitor" />
+![GitHub](https://img.shields.io/github/license/soyum2222/sharpshooter?logo=Github&style=plastic)  ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/soyum2222/sharpshooter?logo=Github) <img src="https://visits.myyou.top/soyum2222/sharpshooter/visitor" />
  
 
 
