@@ -26,6 +26,7 @@ const (
 	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
 	DEFAULT_INIT_RTO_UNIT                      = float64(200 * time.Millisecond)
 	DEFAULT_INIT_DELAY_ACK                     = float64(200 * time.Millisecond)
+	DEFAULT_INIT_INTERVAL                      = 100
 )
 
 var (
@@ -52,6 +53,7 @@ type Sniper struct {
 	timeFlag      int64
 	totalFlow     int64 // statistics total flow used
 	effectiveFlow int64 // statistics effective flow
+	interval      int64
 	sendCache     []byte
 	writer        func(p []byte) (n int, err error)
 
@@ -111,6 +113,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
+		interval:      DEFAULT_INIT_INTERVAL,
 	}
 
 	sn.rcv = sn.rcvnoml
@@ -155,6 +158,10 @@ func (s *Sniper) SetSendWin(size int32) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 	s.maxWin = size
+}
+
+func (s *Sniper) SetInterval(interval int64) {
+	s.interval = interval
 }
 
 func (s *Sniper) OpenStaFlow() {
@@ -340,9 +347,6 @@ func (s *Sniper) shooter() {
 		case <-s.timeoutTimer.C:
 
 			s.rto = s.rto * 2
-			//if s.maxWin > 1<<4 {
-			//	s.zoomoutWin()
-			//}
 
 			break
 
@@ -381,7 +385,7 @@ func (s *Sniper) ack(id uint32) {
 // timed trigger send ack
 func (s *Sniper) ackTimer() {
 
-	timer := time.NewTimer(time.Duration(DEFAULT_INIT_DELAY_ACK))
+	timer := time.NewTimer(time.Duration(s.interval) * time.Millisecond)
 	for {
 
 		s._ackSender()
@@ -394,7 +398,7 @@ func (s *Sniper) ackTimer() {
 			return
 		}
 
-		timer.Reset(time.Duration(math.Min(float64(s.rtt/2), float64(50*time.Millisecond))) * time.Nanosecond)
+		timer.Reset(time.Duration(math.Min(float64(s.rtt/2), float64(time.Duration(s.interval/4)*time.Millisecond))) * time.Nanosecond)
 	}
 }
 
