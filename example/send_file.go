@@ -18,8 +18,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	conn.OpenStaFlow()
-	conn.OpenStaFlow()
+	//conn.OpenStaFlow()
+	//conn.OpenStaFlow()
 
 	info, err := os.Stat("./source")
 	if err != nil {

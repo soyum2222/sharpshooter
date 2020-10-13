@@ -1,21 +1,14 @@
 package main
 
 import (
-	"fmt"
 	"github.com/soyum2222/sharpshooter"
 	"io"
-	"net"
 	"os"
 )
 
 func main() {
 
-	addr := &net.UDPAddr{
-		IP:   nil,
-		Port: 8858,
-		Zone: "",
-	}
-	l, err := sharpshooter.Listen(addr)
+	l, err := sharpshooter.Listen(":8858")
 	if err != nil {
 		panic(err)
 	}
@@ -24,7 +17,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	conn.OpenStaFlow()
+	//conn.OpenStaFlow()
 
 	file, err := os.Open("./test")
 	if err != nil {
@@ -36,5 +29,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(conn.FlowStatistics())
+	//fmt.Println(conn.FlowStatistics())
 }

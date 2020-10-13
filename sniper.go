@@ -30,8 +30,9 @@ const (
 )
 
 var (
-	CLOSEERROR   = errors.New("the connection is closed")
-	TIMEOUTERROR = errors.New("health monitor timeout ")
+	CLOSEERROR         = errors.New("the connection is closed")
+	HEALTHTIMEOUTERROR = errors.New("health monitor timeout ")
+	TIMEOUERROR        = errors.New("i/o timeout")
 )
 
 type Sniper struct {
@@ -56,6 +57,11 @@ type Sniper struct {
 	interval      int64
 	sendCache     []byte
 	writer        func(p []byte) (n int, err error)
+
+	//dead line
+	readDeadline  time.Time
+	deadline      time.Time
+	writeDeadline time.Time
 
 	aim           *net.UDPAddr
 	conn          *net.UDPConn
@@ -91,6 +97,29 @@ type Sniper struct {
 	bemu sync.Mutex
 	// close lock
 	clock sync.Mutex
+}
+
+func (s *Sniper) LocalAddr() net.Addr {
+	return s.conn.LocalAddr()
+}
+
+func (s *Sniper) RemoteAddr() net.Addr {
+	return s.aim
+}
+
+func (s *Sniper) SetDeadline(t time.Time) error {
+	s.deadline = t
+	return nil
+}
+
+func (s *Sniper) SetReadDeadline(t time.Time) error {
+	s.readDeadline = t
+	return nil
+}
+
+func (s *Sniper) SetWriteDeadline(t time.Time) error {
+	s.writeDeadline = t
+	return nil
 }
 
 func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
@@ -203,7 +232,7 @@ func (s *Sniper) healthMonitor() {
 					return
 				}
 
-				s.errorContainer.Store(errors.New(TIMEOUTERROR.Error()))
+				s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
 				close(s.errorSign)
 
 				s.ackSign.Close()

@@ -20,7 +20,11 @@ type headquarters struct {
 	closeSign      chan struct{}
 }
 
-func Dial(addr string) (*Sniper, error) {
+func (h *headquarters) Addr() net.Addr {
+	return h.conn.LocalAddr()
+}
+
+func Dial(addr string) (net.Conn, error) {
 
 	udpaddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -115,9 +119,14 @@ loop:
 	return sn, nil
 }
 
-func Listen(addr *net.UDPAddr) (*headquarters, error) {
+func Listen(addr string) (*headquarters, error) {
 
-	conn, err := net.ListenUDP("udp", addr)
+	address, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := net.ListenUDP("udp", address)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +150,7 @@ func NewHeadquarters() *headquarters {
 	}
 }
 
-func (h *headquarters) Accept() (*Sniper, error) {
+func (h *headquarters) Accept() (net.Conn, error) {
 	sn := <-h.accept
 	go sn.ackTimer()
 	sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
@@ -149,8 +158,8 @@ func (h *headquarters) Accept() (*Sniper, error) {
 	return sn, nil
 }
 
-func (h *headquarters) Close() {
-
+func (h *headquarters) Close() error {
+	return h.conn.Close()
 }
 
 func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) (int, error) {
@@ -198,7 +207,15 @@ func (h *headquarters) monitor() {
 			n, remote, err := h.conn.ReadFrom(b)
 			if err != nil {
 				h.errorContainer.Store(err)
-				close(h.errorSign)
+				select {
+				case <-h.errorSign:
+				default:
+					close(h.errorSign)
+				}
+			}
+
+			if n == 0 {
+				continue
 			}
 
 			msg := protocol.Unmarshal(b[:n])
