@@ -40,7 +40,6 @@ func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 	}
 
 	return shards, nil
-
 }
 
 func newFecEncoder(dataShards, parShards int) *fecEncoder {
@@ -51,7 +50,6 @@ func newFecEncoder(dataShards, parShards int) *fecEncoder {
 
 	fec.enc, _ = reedsolomon.New(dataShards, parShards)
 	return &fec
-
 }
 
 type fecDecoder struct {
@@ -68,7 +66,6 @@ func newFecDecoder(dataShards, parShards int) *fecDecoder {
 
 	fec.dec, _ = reedsolomon.New(dataShards, parShards)
 	return &fec
-
 }
 
 func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {

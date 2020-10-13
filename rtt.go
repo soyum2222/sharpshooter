@@ -29,5 +29,4 @@ func (s *Sniper) calrto(rtt int64) {
 	if s.rtt < int64(time.Millisecond*10) {
 		s.rtt = int64(time.Millisecond * 10)
 	}
-
 }

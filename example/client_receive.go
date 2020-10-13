@@ -20,7 +20,5 @@ func main() {
 			panic(err)
 		}
 		i++
-		//fmt.Println(i)
 	}
-
 }

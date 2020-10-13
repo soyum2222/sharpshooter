@@ -37,5 +37,4 @@ func main() {
 	}
 
 	fmt.Println(conn.FlowStatistics())
-
 }

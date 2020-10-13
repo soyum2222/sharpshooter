@@ -68,7 +68,6 @@ func Dial(addr string) (*Sniper, error) {
 		}
 
 		c <- nil
-
 	}()
 
 	var i int
@@ -114,7 +113,6 @@ loop:
 	go sn.monitor()
 
 	return sn, nil
-
 }
 
 func Listen(addr *net.UDPAddr) (*headquarters, error) {
@@ -130,7 +128,6 @@ func Listen(addr *net.UDPAddr) (*headquarters, error) {
 	go h.monitor()
 
 	return h, nil
-
 }
 
 func NewHeadquarters() *headquarters {
@@ -164,7 +161,6 @@ func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) (int, error) {
 	}
 
 	return sn.Write(b)
-
 }
 
 func (h *headquarters) clear() {
@@ -183,7 +179,6 @@ func (h *headquarters) clear() {
 				}
 			}
 		}
-
 	}
 }
 
@@ -230,11 +225,8 @@ func (h *headquarters) monitor() {
 				case h.blockSign <- struct{}{}:
 				default:
 				}
-
 			}
-
 		}
-
 	}
 }
 
@@ -301,11 +293,8 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 					time.Sleep(time.Second)
 					try++
 					goto l
-
 				}
-
 			}()
-
 		}
 
 	case protocol.CLOSERESP:
@@ -326,9 +315,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 	case protocol.NORMAL:
 		sn.rcv(&msg)
-
 	}
-
 }
 
 func (h *headquarters) ReadFrom(b []byte) (int, net.Addr, error) {
@@ -351,7 +338,5 @@ func (h *headquarters) ReadFrom(b []byte) (int, net.Addr, error) {
 		case <-h.errorSign:
 			return 0, nil, h.errorContainer.Load().(error)
 		}
-
 	}
-
 }

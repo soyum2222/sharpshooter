@@ -39,7 +39,6 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 		case <-sn.handShakeSign:
 			return
 		}
-
 	}()
 }
 

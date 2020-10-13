@@ -29,7 +29,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 
 	var anchor int
 
-	for i := 0; i < len(s.rcvAmmoBag); i++{
+	for i := 0; i < len(s.rcvAmmoBag); i++ {
 
 		if s.rcvAmmoBag[i] != nil {
 			s.rcvCache = append(s.rcvCache, s.rcvAmmoBag[i].Body...)
@@ -57,7 +57,6 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 	case s.readBlock <- struct{}{}:
 	default:
 	}
-
 }
 
 func (s *Sniper) rcvfec(ammo *protocol.Ammo) {

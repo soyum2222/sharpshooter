@@ -123,7 +123,6 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 	sn.isDelay = true
 	sn.writer = sn.delaySend
 	return sn
-
 }
 
 func (s *Sniper) addTotalFlow(flow int) {
@@ -226,7 +225,6 @@ func (s *Sniper) healthMonitor() {
 			return
 		}
 	}
-
 }
 
 // send to remote
@@ -332,9 +330,7 @@ func (s *Sniper) flush() {
 		atomic.AddUint32(&s.sendWinId, uint32(index))
 		return
 	}
-
 	atomic.StoreUint32(&s.sendWinId, s.ammoBag[0].Id)
-
 }
 
 // timed trigger send
@@ -355,9 +351,7 @@ func (s *Sniper) shooter() {
 		}
 
 		s.shoot()
-
 	}
-
 }
 
 func (s *Sniper) ack(id uint32) {
@@ -456,7 +450,6 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 	s.mu.Unlock()
 	s.shoot()
-
 	return
 }
 
@@ -550,7 +543,6 @@ func (s *Sniper) monitor() {
 			msg := protocol.Unmarshal(b[:n])
 			routing(s, msg)
 		}
-
 	}
 }
 
@@ -607,11 +599,9 @@ loop:
 		time.Sleep(time.Second)
 		try++
 		goto loop
-
 	}
 
 	s.isClose = true
 
 	return nil
-
 }

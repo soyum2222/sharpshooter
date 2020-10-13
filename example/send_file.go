@@ -14,7 +14,7 @@ func main() {
 
 	begin := time.Now()
 
-	conn, err := sharpshooter.Dial("127.0.0.1:8858")
+	conn, err := sharpshooter.Dial("118.25.218.132:8858")
 	if err != nil {
 		panic(err)
 	}
