@@ -12,7 +12,7 @@ func (s *Sniper) Read(b []byte) (n int, err error) {
 
 loop:
 
-	if (!s.readDeadline.IsZero() || !s.deadline.IsZero()) && (s.readDeadline.Before(time.Now()) || s.deadline.Before(time.Now())) {
+	if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) && (!s.deadline.IsZero() || s.deadline.Before(time.Now())) {
 		return 0, TIMEOUERROR
 	}
 

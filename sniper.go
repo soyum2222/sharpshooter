@@ -494,6 +494,16 @@ func (s *Sniper) Write(b []byte) (n int, err error) {
 	if s.isClose {
 		return 0, CLOSEERROR
 	}
+
+	now := time.Now()
+	if !s.deadline.IsZero() && s.deadline.Before(now) {
+		return 0, TIMEOUERROR
+	}
+
+	if !s.writeDeadline.IsZero() && s.writeDeadline.Before(now) {
+		return 0, TIMEOUERROR
+	}
+
 	return s.writer(b)
 }
 
@@ -603,9 +613,12 @@ loop:
 
 		s.writerBlocker.Close()
 
+		timer := time.NewTimer(time.Second * DEFAULT_INIT_HANDSHACK_TIMEOUT)
+		defer timer.Stop()
+
 		select {
 		case <-s.closeChan:
-		case <-time.NewTimer(time.Second * DEFAULT_INIT_HANDSHACK_TIMEOUT).C:
+		case <-timer.C:
 			s.isClose = true
 			if s.noLeader {
 				_ = s.conn.Close()
