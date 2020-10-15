@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/soyum2222/sharpshooter"
 	"io"
-	"net"
 	"net/http"
 	_ "net/http/pprof"
 )
@@ -14,12 +13,8 @@ func main() {
 
 	go http.ListenAndServe(":9999", nil)
 
-	addr := &net.UDPAddr{
-		IP:   nil,
-		Port: 8858,
-		Zone: "",
-	}
-	h, err := sharpshooter.Listen(addr)
+
+	h, err := sharpshooter.Listen(":8858")
 	if err != nil {
 		panic(err)
 	}

@@ -58,7 +58,7 @@ func Dial(addr string) (net.Conn, error) {
 			if err != nil {
 				c <- err
 			}
-			close(ch)
+			closeChan(ch)
 			return ch
 		}():
 
@@ -210,7 +210,7 @@ func (h *headquarters) monitor() {
 				select {
 				case <-h.errorSign:
 				default:
-					close(h.errorSign)
+					closeChan(h.errorSign)
 				}
 			}
 
@@ -266,23 +266,29 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 		sn.handleAck(ids)
 
 	case protocol.CLOSE:
-
+		// revive close signal after func Write can't write anything
 		if msg.Id == sn.rcvId {
 
 			sn.rcvId++
 
 			sn.ack(msg.Id)
 
-			go func() {
+			sn.mu.Lock()
+			// find tail ammo
+			tail := len(sn.ammoBag) - 1
+			if tail > 0 {
+				sn.ammoBag[tail].Kind = protocol.NORMALTAIL
+			}
+			sn.mu.Unlock()
+
+			go sn.closeOnce.Do(func() {
+
 				var try int
 			l:
 				sn.bemu.Lock()
 
-				// TODO
-				// here have possible a close message in the ammoBge
-				// now I don't know how to do
-				// temporarily add try count
-				if len(sn.ammoBag) == 0 || try > 10 {
+				if len(sn.ammoBag) == 0 || try > 0xff {
+
 					sn.writerBlocker.Close()
 
 					if sn.isClose {
@@ -292,9 +298,10 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 					sn.isClose = true
 
 					sn.ackSign.Close()
-					close(sn.closeChan)
+					closeChan(sn.closeChan)
+
 					if sn.noLeader {
-						_ = sn.conn.Close()
+						defer func() { _ = sn.conn.Close() }()
 					}
 					sn.bemu.Unlock()
 					_, err := sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
@@ -307,15 +314,16 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 				} else {
 					sn.bemu.Unlock()
-					time.Sleep(time.Second)
+					sn.shoot()
 					try++
 					goto l
 				}
-			}()
+			})
+
 		}
 
 	case protocol.CLOSERESP:
-		close(sn.closeChan)
+		closeChan(sn.closeChan)
 
 	case protocol.HEALTHCHECK:
 		_, _ = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
@@ -332,6 +340,10 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 	case protocol.NORMAL:
 		sn.rcv(&msg)
+
+	case protocol.NORMALTAIL:
+		sn.rcv(&msg)
+		closeChan(sn.closeChan)
 	}
 }
 

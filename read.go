@@ -6,6 +6,8 @@ import (
 
 func (s *Sniper) Read(b []byte) (n int, err error) {
 
+	var closeRet bool
+
 	if len(b) == 0 {
 		return 0, nil
 	}
@@ -45,7 +47,11 @@ loop:
 			goto loop
 
 		case _, _ = <-s.closeChan:
-			return 0, CLOSEERROR
+			if closeRet {
+				return 0, CLOSEERROR
+			}
+			closeRet = true
+			goto loop
 
 		case <-s.errorSign:
 			return 0, s.errorContainer.Load().(error)

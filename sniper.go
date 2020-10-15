@@ -74,6 +74,7 @@ type Sniper struct {
 	handShakeSign chan struct{}
 	ackSign       *block.Blocker
 	writerBlocker *block.Blocker
+	closeOnce     sync.Once
 	closeChan     chan struct{}
 	stopShotSign  chan struct{}
 	errorSign     chan struct{}
@@ -243,9 +244,8 @@ func (s *Sniper) healthMonitor() {
 				}
 
 				s.isClose = true
-				close(s.closeChan)
-				close(s.readBlock)
-
+				closeChan(s.closeChan)
+				closeChan(s.readBlock)
 				return
 			}
 
@@ -297,7 +297,7 @@ func (s *Sniper) shoot() {
 				case <-s.errorSign:
 				default:
 					s.errorContainer.Store(errors.New(err.Error()))
-					close(s.errorSign)
+					closeChan(s.errorSign)
 				}
 			}
 
@@ -596,13 +596,10 @@ loop:
 	if s.isClose {
 		return errors.New("is closed")
 	}
-	if try > 10 {
-		return errors.New("over try")
-	}
 
 	s.mu.Lock()
 	// if ammoBag not clear , should delay try again
-	if len(s.ammoBag) == 0 && len(s.sendCache) == 0 {
+	if (len(s.ammoBag) == 0 && len(s.sendCache) == 0) || try > 0xff {
 		s.mu.Unlock()
 
 		s.ammoBag = append(s.ammoBag, &protocol.Ammo{
@@ -619,6 +616,7 @@ loop:
 		select {
 		case <-s.closeChan:
 		case <-timer.C:
+
 			s.isClose = true
 			if s.noLeader {
 				_ = s.conn.Close()
@@ -638,7 +636,7 @@ loop:
 
 	} else {
 		s.mu.Unlock()
-		time.Sleep(time.Second)
+		s.shoot()
 		try++
 		goto loop
 	}
