@@ -30,11 +30,18 @@ loop:
 	recheck:
 		var tick <-chan time.Time
 		if !s.readDeadline.IsZero() || !s.deadline.IsZero() {
+			var remainTime int64
 			if s.readDeadline.After(s.deadline) {
-				tick = time.Tick(time.Duration(s.readDeadline.UnixNano()-time.Now().UnixNano()) * time.Nanosecond)
+				remainTime = s.readDeadline.UnixNano() - time.Now().UnixNano()
 			} else {
-				tick = time.Tick(time.Duration(s.deadline.UnixNano()-time.Now().UnixNano()) * time.Nanosecond)
+				remainTime = s.deadline.UnixNano() - time.Now().UnixNano()
 			}
+
+			if remainTime == 0 {
+				remainTime = 1
+			}
+
+			tick = time.Tick(time.Duration(remainTime) * time.Nanosecond)
 		} else {
 			tick = time.Tick(time.Second)
 		}
