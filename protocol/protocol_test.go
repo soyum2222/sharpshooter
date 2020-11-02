@@ -13,7 +13,6 @@ func BenchmarkUnmarshal(b *testing.B) {
 
 		Unmarshal(b)
 	}
-
 }
 
 func BenchmarkMarshal(b *testing.B) {
@@ -29,5 +28,4 @@ func BenchmarkMarshal(b *testing.B) {
 			Body: b,
 		})
 	}
-
 }

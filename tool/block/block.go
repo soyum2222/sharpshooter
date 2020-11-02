@@ -17,7 +17,6 @@ func NewBlocker() *Blocker {
 	b := &Blocker{}
 	b.Init()
 	return b
-
 }
 
 func (b *Blocker) Init() {

@@ -319,7 +319,6 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 					goto l
 				}
 			})
-
 		}
 
 	case protocol.CLOSERESP:

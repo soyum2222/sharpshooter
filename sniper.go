@@ -197,6 +197,9 @@ func (s *Sniper) OpenStaFlow() {
 	s.staSwitch = true
 }
 
+// use FEC algorithm in communication
+// this will waste some of traffic ,  but when the packet is lost
+// there is a certain probability that the lost packet can be recovered
 func (s *Sniper) OpenFec(dataShards, parShards int) {
 	s.fecd = newFecDecoder(dataShards, parShards)
 	s.fece = newFecEncoder(dataShards, parShards)
@@ -315,7 +318,7 @@ func (s *Sniper) shoot() {
 
 	rto := atomic.LoadInt64(&s.rto)
 
-	// Maybe overflow
+	// maybe overflow
 	if rto <= 0 {
 		rto = int64(250 * time.Millisecond)
 	}
@@ -402,7 +405,6 @@ func (s *Sniper) ack(id uint32) {
 	}
 
 	_ = s.ackSign.Pass()
-
 }
 
 // timed trigger send ack

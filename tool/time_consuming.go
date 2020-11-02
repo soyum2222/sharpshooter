@@ -16,5 +16,4 @@ func TimeConsuming() func() {
 	return func() {
 		fmt.Printf("%s time consuming : %d \n", f.Name(), time.Now().UnixNano()-t)
 	}
-
 }

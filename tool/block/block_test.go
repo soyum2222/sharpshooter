@@ -36,7 +36,6 @@ func TestMultiBlock(t *testing.T) {
 		b.Pass()
 	}
 	wait.Wait()
-
 }
 
 func TestOrder(t *testing.T) {
@@ -66,7 +65,6 @@ func TestOrder(t *testing.T) {
 		b.Pass()
 		time.Sleep(time.Millisecond)
 	}
-
 }
 
 func TestClose(t *testing.T) {
@@ -86,5 +84,4 @@ func TestClose(t *testing.T) {
 
 	b.Close()
 	wait.Wait()
-
 }

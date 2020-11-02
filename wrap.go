@@ -96,7 +96,5 @@ func (s *Sniper) wrapnoml() {
 		}
 
 		s.ammoBag = append(s.ammoBag, &ammo)
-
 	}
-
 }

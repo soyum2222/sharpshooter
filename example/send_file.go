@@ -52,7 +52,6 @@ func main() {
 		if i%1000 == 0 {
 			fmt.Println(float64(count) / float64(size))
 		}
-
 	}
 
 	time.Sleep(time.Second * 5)
