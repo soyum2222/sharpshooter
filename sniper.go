@@ -237,7 +237,7 @@ func (s *Sniper) healthMonitor() {
 				}
 
 				s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
-				close(s.errorSign)
+				closeChan(s.errorSign)
 
 				s.ackSign.Close()
 				s.writerBlocker.Close()
@@ -573,11 +573,7 @@ func (s *Sniper) monitor() {
 			n, err := s.conn.Read(b)
 			if err != nil {
 				s.errorContainer.Store(errors.New(err.Error()))
-				select {
-				case <-s.errorSign:
-				default:
-					close(s.errorSign)
-				}
+				closeChan(s.errorSign)
 				continue
 			}
 
