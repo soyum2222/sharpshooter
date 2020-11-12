@@ -8,13 +8,21 @@ func (s *Sniper) Read(b []byte) (n int, err error) {
 
 	var closeRet bool
 
+	var tick *time.Ticker
+	defer func() {
+		if tick != nil {
+			tick.Stop()
+		}
+	}()
+
 	if len(b) == 0 {
 		return 0, nil
 	}
 
 loop:
 
-	if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) || (!s.deadline.IsZero() && s.deadline.Before(time.Now())) {
+	now := time.Now()
+	if (!s.readDeadline.IsZero() && s.readDeadline.Before(now)) || (!s.deadline.IsZero() && s.deadline.Before(now)) {
 		return 0, TIMEOUERROR
 	}
 
@@ -28,12 +36,6 @@ loop:
 	if n <= 0 {
 
 	recheck:
-		var tick *time.Ticker
-		defer func() {
-			if tick != nil {
-				tick.Stop()
-			}
-		}()
 
 		if !s.readDeadline.IsZero() || !s.deadline.IsZero() {
 
@@ -79,7 +81,8 @@ loop:
 		case <-s.errorSign:
 			return 0, s.errorContainer.Load().(error)
 		case <-tick.C:
-			if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) || (s.deadline.Before(time.Now()) && !s.deadline.IsZero()) {
+			now := time.Now()
+			if (!s.readDeadline.IsZero() && s.readDeadline.Before(now)) || (s.deadline.Before(now) && !s.deadline.IsZero()) {
 				return 0, TIMEOUERROR
 			}
 		}
