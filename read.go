@@ -59,9 +59,19 @@ loop:
 				remainTime = 1
 			}
 
-			tick = time.NewTicker(time.Duration(remainTime) * time.Nanosecond)
+			if tick == nil {
+				tick = time.NewTicker(time.Duration(remainTime) * time.Nanosecond)
+			} else {
+				tick.Reset(time.Duration(remainTime) * time.Nanosecond)
+			}
+
 		} else {
-			tick = time.NewTicker(time.Second)
+
+			if tick == nil {
+				tick = time.NewTicker(time.Second)
+			} else {
+				tick.Reset(time.Second)
+			}
 		}
 
 		select {
