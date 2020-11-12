@@ -28,7 +28,13 @@ loop:
 	if n <= 0 {
 
 	recheck:
-		var tick <-chan time.Time
+		var tick *time.Ticker
+		defer func() {
+			if tick != nil {
+				tick.Stop()
+			}
+		}()
+
 		if !s.readDeadline.IsZero() || !s.deadline.IsZero() {
 
 			var remainTime int64
@@ -51,9 +57,9 @@ loop:
 				remainTime = 1
 			}
 
-			tick = time.Tick(time.Duration(remainTime) * time.Nanosecond)
+			tick = time.NewTicker(time.Duration(remainTime) * time.Nanosecond)
 		} else {
-			tick = time.Tick(time.Second)
+			tick = time.NewTicker(time.Second)
 		}
 
 		select {
@@ -72,7 +78,7 @@ loop:
 
 		case <-s.errorSign:
 			return 0, s.errorContainer.Load().(error)
-		case <-tick:
+		case <-tick.C:
 			if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) || (s.deadline.Before(time.Now()) && !s.deadline.IsZero()) {
 				return 0, TIMEOUERROR
 			}
