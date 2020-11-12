@@ -1,10 +1,26 @@
 package sharpshooter
 
-func closeChan(c chan struct{}) {
+import "sync"
 
+//func closeChan(c chan struct{}) {
+//
+//	select {
+//	case <-c:
+//	default:
+//		close(c)
+//	}
+//}
+
+type chanCloser struct {
+	mu sync.Mutex
+}
+
+func (c *chanCloser) closeChan(ch chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	select {
-	case <-c:
+	case <-ch:
 	default:
-		close(c)
+		close(ch)
 	}
 }

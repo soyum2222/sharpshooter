@@ -3,6 +3,8 @@ package sharpshooter
 import (
 	"fmt"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -389,6 +391,7 @@ func TestSniper_SetDeadline(t *testing.T) {
 		if err != TIMEOUERROR {
 			t.Fail()
 		}
+		fmt.Println("timeout")
 	}
 
 	dial := func() {
@@ -397,7 +400,7 @@ func TestSniper_SetDeadline(t *testing.T) {
 		<-synchronization
 		conn := dial()
 		defer func() { _ = conn.Close() }()
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 3)
 		_, err := conn.Write([]byte("ping"))
 		if err != CLOSEERROR {
 			t.Fail()
@@ -497,6 +500,69 @@ func TestSniper_SetWriteDeadline(t *testing.T) {
 		if err != TIMEOUERROR {
 			fmt.Println("client fail ", err)
 			t.Fail()
+		}
+	}
+
+	go server()
+	go dial()
+
+	group.Wait()
+}
+
+func Test_CreateLargeConnection(t *testing.T) {
+
+	go http.ListenAndServe(":7777", nil)
+	group := sync.WaitGroup{}
+	group.Add(2)
+
+	server := func() {
+
+		defer group.Done()
+
+		listen, err := Listen(":9090")
+		if err != nil {
+			panic(err)
+		}
+
+		for i := 0; i < 1<<10; i++ {
+			conn, err := listen.Accept()
+			go func() {
+				b := make([]byte, 10)
+				if err != nil {
+					panic(err)
+				}
+
+				defer conn.Close()
+
+				n, err := conn.Read(b)
+				if err != nil {
+					t.Fail()
+					panic(err)
+				}
+				fmt.Println(string(b[:n]))
+
+			}()
+		}
+	}
+
+	dial := func() {
+
+		defer group.Done()
+
+		for i := 0; i < 1<<10; i++ {
+
+			go func() {
+				conn, err := Dial("127.0.0.1:9090")
+				if err != nil {
+					panic(err)
+				}
+
+				_, err = conn.Write([]byte("ping"))
+				if err != nil {
+					t.Fail()
+					panic(err)
+				}
+			}()
 		}
 	}
 

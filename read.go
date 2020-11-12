@@ -14,7 +14,7 @@ func (s *Sniper) Read(b []byte) (n int, err error) {
 
 loop:
 
-	if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) && (!s.deadline.IsZero() || s.deadline.Before(time.Now())) {
+	if (!s.readDeadline.IsZero() && s.readDeadline.Before(time.Now())) || (!s.deadline.IsZero() && s.deadline.Before(time.Now())) {
 		return 0, TIMEOUERROR
 	}
 
@@ -30,14 +30,24 @@ loop:
 	recheck:
 		var tick <-chan time.Time
 		if !s.readDeadline.IsZero() || !s.deadline.IsZero() {
+
 			var remainTime int64
-			if s.readDeadline.After(s.deadline) {
-				remainTime = s.readDeadline.UnixNano() - time.Now().UnixNano()
-			} else {
+
+			switch {
+
+			case s.readDeadline.IsZero():
 				remainTime = s.deadline.UnixNano() - time.Now().UnixNano()
+			case s.deadline.IsZero():
+				remainTime = s.readDeadline.UnixNano() - time.Now().UnixNano()
+			default:
+				if s.readDeadline.After(s.deadline) {
+					remainTime = s.deadline.UnixNano() - time.Now().UnixNano()
+				} else {
+					remainTime = s.readDeadline.UnixNano() - time.Now().UnixNano()
+				}
 			}
 
-			if remainTime == 0 {
+			if remainTime <= 0 {
 				remainTime = 1
 			}
 

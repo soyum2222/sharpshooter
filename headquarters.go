@@ -6,18 +6,20 @@ import (
 	"errors"
 	"github.com/soyum2222/sharpshooter/protocol"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type headquarters struct {
 	conn           *net.UDPConn
-	Snipers        map[string]*Sniper
+	Snipers        sync.Map
 	blockSign      chan struct{}
 	accept         chan *Sniper
 	errorSign      chan struct{}
 	errorContainer atomic.Value
 	closeSign      chan struct{}
+	chanCloser     chanCloser
 }
 
 func (h *headquarters) Addr() net.Addr {
@@ -58,13 +60,15 @@ func Dial(addr string) (net.Conn, error) {
 			if err != nil {
 				c <- err
 			}
-			closeChan(ch)
+
+			// here close is absolutely safe
+			close(ch)
+
 			return ch
 		}():
 
 		case <-ctx.Done():
 			_ = conn.Close()
-
 		}
 
 		if protocol.Unmarshal(secondhand).Kind != protocol.SECONDHANDSHACK {
@@ -142,7 +146,6 @@ func Listen(addr string) (*headquarters, error) {
 func NewHeadquarters() *headquarters {
 
 	return &headquarters{
-		Snipers:   map[string]*Sniper{},
 		blockSign: make(chan struct{}, 0),
 		accept:    make(chan *Sniper, 10),
 		errorSign: make(chan struct{}, 0),
@@ -151,25 +154,31 @@ func NewHeadquarters() *headquarters {
 }
 
 func (h *headquarters) Accept() (net.Conn, error) {
-	sn := <-h.accept
-	go sn.ackTimer()
-	sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
-	go sn.shooter()
-	return sn, nil
+	select {
+	case sn := <-h.accept:
+		go sn.ackTimer()
+		sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
+		go sn.shooter()
+		return sn, nil
+
+	case <-h.errorSign:
+		return nil, h.errorContainer.Load().(error)
+	}
 }
 
 func (h *headquarters) Close() error {
+	h.chanCloser.closeChan(h.closeSign)
 	return h.conn.Close()
 }
 
 func (h *headquarters) WriteToAddr(b []byte, addr *net.UDPAddr) (int, error) {
 
-	sn, ok := h.Snipers[addr.String()]
+	sn, ok := h.Snipers.Load(addr.String())
 	if !ok {
 		return 0, errors.New("the addr is not dial")
 	}
 
-	return sn.Write(b)
+	return sn.(*Sniper).Write(b)
 }
 
 func (h *headquarters) clear() {
@@ -182,17 +191,16 @@ func (h *headquarters) clear() {
 			return
 		default:
 
-			for k, v := range h.Snipers {
-				if v.isClose {
-					delete(h.Snipers, k)
+			h.Snipers.Range(func(key, value interface{}) bool {
+				if value.(*Sniper).isClose {
+					h.Snipers.Delete(key)
 				}
-			}
+				return true
+			})
 		}
 	}
 }
 
-// TODO
-// use dial a sniper will leak!
 func (h *headquarters) monitor() {
 	go h.clear()
 
@@ -201,17 +209,14 @@ func (h *headquarters) monitor() {
 
 		select {
 		case <-h.closeSign:
+			return
 
 		default:
 
 			n, remote, err := h.conn.ReadFrom(b)
 			if err != nil {
 				h.errorContainer.Store(err)
-				select {
-				case <-h.errorSign:
-				default:
-					closeChan(h.errorSign)
-				}
+				h.chanCloser.closeChan(h.errorSign)
 			}
 
 			if n == 0 {
@@ -231,12 +236,12 @@ func (h *headquarters) monitor() {
 				thirdHandShack(h, remote)
 
 			default:
-				sn, ok := h.Snipers[remote.String()]
+				sn, ok := h.Snipers.Load(remote.String())
 				if !ok {
 					continue
 				}
 
-				routing(sn, msg)
+				routing(sn.(*Sniper), msg)
 
 				select {
 				case h.blockSign <- struct{}{}:
@@ -292,13 +297,14 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 					sn.writerBlocker.Close()
 
 					if sn.isClose {
+						sn.bemu.Unlock()
 						return
 					}
 
 					sn.isClose = true
 
 					sn.ackSign.Close()
-					closeChan(sn.closeChan)
+					sn.chanCloser.closeChan(sn.closeChan)
 
 					if sn.noLeader {
 						defer func() { _ = sn.conn.Close() }()
@@ -322,7 +328,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 		}
 
 	case protocol.CLOSERESP:
-		closeChan(sn.closeChan)
+		sn.chanCloser.closeChan(sn.closeChan)
 
 	case protocol.HEALTHCHECK:
 		_, _ = sn.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
@@ -342,7 +348,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 	case protocol.NORMALTAIL:
 		sn.rcv(&msg)
-		closeChan(sn.closeChan)
+		sn.chanCloser.closeChan(sn.closeChan)
 	}
 }
 
@@ -350,15 +356,25 @@ func (h *headquarters) ReadFrom(b []byte) (int, net.Addr, error) {
 
 	for {
 
-		for _, v := range h.Snipers {
+		var ret bool
+		var err error
+		var n int
+		var addr net.Addr
 
+		h.Snipers.Range(func(key, value interface{}) bool {
+			v := value.(*Sniper)
 			if len(v.rcvAmmoBag) == 0 || v.rcvAmmoBag[0] == nil {
-				continue
+				return true
 			}
 
-			n, err := v.Read(b)
-			return n, v.aim, err
+			ret = true
+			n, err = v.Read(b)
+			addr = v.aim
+			return false
+		})
 
+		if ret {
+			return n, addr, err
 		}
 
 		select {

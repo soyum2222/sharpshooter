@@ -40,7 +40,7 @@ loop:
 		case <-s.errorSign:
 		default:
 			s.errorContainer.Store(errors.New(err.Error()))
-			closeChan(s.errorSign)
+			s.chanCloser.closeChan(s.errorSign)
 		}
 		return
 	}

@@ -2,6 +2,7 @@ package block
 
 import (
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -9,6 +10,7 @@ var noblock = errors.New("without any block")
 var closed = errors.New("blocker be closed")
 
 type Blocker struct {
+	mu    sync.Mutex
 	c     chan struct{}
 	close chan struct{}
 }
@@ -61,6 +63,8 @@ func (b *Blocker) PassBT(duration time.Duration) error {
 }
 
 func (b *Blocker) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	select {
 	case <-b.close:
 		return

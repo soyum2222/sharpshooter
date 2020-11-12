@@ -10,7 +10,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 
 	sn := NewSniper(h.conn, remote.(*net.UDPAddr))
 
-	h.Snipers[remote.String()] = sn
+	h.Snipers.Store(remote.String(), sn)
 
 	ammo := protocol.Ammo{
 		Id:   0,
@@ -21,7 +21,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 	go func() {
 
 		var try int
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(time.Millisecond * 200)
 
 	loop:
 
@@ -43,10 +43,12 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 }
 
 func secondHandShack(h *headquarters, remote net.Addr) {
-	sn, ok := h.Snipers[remote.String()]
+	i, ok := h.Snipers.Load(remote.String())
 	if !ok {
 		return
 	}
+
+	sn := i.(*Sniper)
 
 	ammo := protocol.Ammo{
 		Id:   0,
@@ -58,10 +60,12 @@ func secondHandShack(h *headquarters, remote net.Addr) {
 }
 
 func thirdHandShack(h *headquarters, remote net.Addr) {
-	sn, ok := h.Snipers[remote.String()]
+	i, ok := h.Snipers.Load(remote.String())
 	if !ok {
 		return
 	}
+
+	sn := i.(*Sniper)
 
 	sn.healthTimer = time.NewTimer(time.Second * 3)
 	go sn.healthMonitor()

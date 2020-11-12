@@ -98,6 +98,8 @@ type Sniper struct {
 	bemu sync.Mutex
 	// close lock
 	clock sync.Mutex
+
+	chanCloser chanCloser
 }
 
 func (s *Sniper) LocalAddr() net.Addr {
@@ -237,7 +239,7 @@ func (s *Sniper) healthMonitor() {
 				}
 
 				s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
-				closeChan(s.errorSign)
+				s.chanCloser.closeChan(s.errorSign)
 
 				s.ackSign.Close()
 				s.writerBlocker.Close()
@@ -247,8 +249,8 @@ func (s *Sniper) healthMonitor() {
 				}
 
 				s.isClose = true
-				closeChan(s.closeChan)
-				closeChan(s.readBlock)
+				s.chanCloser.closeChan(s.closeChan)
+				s.chanCloser.closeChan(s.readBlock)
 				return
 			}
 
@@ -300,7 +302,7 @@ func (s *Sniper) shoot() {
 				case <-s.errorSign:
 				default:
 					s.errorContainer.Store(errors.New(err.Error()))
-					closeChan(s.errorSign)
+					s.chanCloser.closeChan(s.errorSign)
 				}
 			}
 
@@ -373,9 +375,7 @@ func (s *Sniper) shooter() {
 		select {
 
 		case <-s.timeoutTimer.C:
-
 			s.rto = s.rto * 2
-
 			break
 
 		case <-s.closeChan:
@@ -573,7 +573,7 @@ func (s *Sniper) monitor() {
 			n, err := s.conn.Read(b)
 			if err != nil {
 				s.errorContainer.Store(errors.New(err.Error()))
-				closeChan(s.errorSign)
+				s.chanCloser.closeChan(s.errorSign)
 				continue
 			}
 
@@ -615,22 +615,15 @@ loop:
 		case <-s.closeChan:
 		case <-timer.C:
 
-			s.isClose = true
 			if s.noLeader {
 				_ = s.conn.Close()
 			}
-			close(s.closeChan)
+			s.chanCloser.closeChan(s.closeChan)
 		}
 
 		s.writerBlocker.Close()
 		s.ackSign.Close()
-		select {
-		case <-s.readBlock:
-		default:
-			close(s.readBlock)
-		}
-
-		s.isClose = true
+		s.chanCloser.closeChan(s.readBlock)
 
 	} else {
 		s.mu.Unlock()
@@ -640,6 +633,5 @@ loop:
 	}
 
 	s.isClose = true
-
 	return nil
 }
