@@ -30,10 +30,10 @@ func compAmmo(a1, a2 Ammo) bool {
 
 func TestMarshalUnmarshal(t *testing.T) {
 	ammo := Ammo{
-		Length: 10,
+		Length: 6,
 		Id:     1,
 		Kind:   1,
-		Body:   make([]byte, 4),
+		Body:   make([]byte, 0),
 	}
 
 	ab := Marshal(ammo)
@@ -85,7 +85,6 @@ func TestRogue(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
-
 }
 
 func BenchmarkUnmarshal(b *testing.B) {
