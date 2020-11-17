@@ -36,7 +36,6 @@ var (
 )
 
 type Sniper struct {
-	isDelay        bool
 	isClose        bool
 	noLeader       bool // it not has headquarters
 	staSwitch      bool // statistics switch
@@ -72,7 +71,6 @@ type Sniper struct {
 	rcvCache      []byte
 	readBlock     chan struct{}
 	handShakeSign chan struct{}
-	ackSign       *block.Blocker
 	writerBlocker *block.Blocker
 	closeOnce     sync.Once
 	closeChan     chan struct{}
@@ -139,7 +137,6 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		mu:            sync.Mutex{},
 		bemu:          sync.Mutex{},
 		packageSize:   DEFAULT_INIT_PACKSIZE,
-		ackSign:       block.NewBlocker(),
 		writerBlocker: block.NewBlocker(),
 		closeChan:     make(chan struct{}, 0),
 		stopShotSign:  make(chan struct{}, 0),
@@ -152,7 +149,6 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 
 	sn.wrap = sn.wrapnoml
 
-	sn.isDelay = true
 	sn.writer = sn.delaySend
 	return sn
 }
@@ -241,7 +237,6 @@ func (s *Sniper) healthMonitor() {
 				s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
 				s.chanCloser.closeChan(s.errorSign)
 
-				s.ackSign.Close()
 				s.writerBlocker.Close()
 
 				if s.noLeader {
@@ -401,10 +396,8 @@ func (s *Sniper) ack(id uint32) {
 
 	s.ackLock.Unlock()
 	if len(s.ackCache) > int(s.packageSize/4) {
-		s._ackSender()
+		s.ackSender()
 	}
-
-	_ = s.ackSign.Pass()
 }
 
 // timed trigger send ack
@@ -413,7 +406,7 @@ func (s *Sniper) ackTimer() {
 	timer := time.NewTimer(time.Duration(s.interval) * time.Millisecond)
 	for {
 
-		s._ackSender()
+		s.ackSender()
 
 		select {
 		case <-timer.C:
@@ -427,7 +420,7 @@ func (s *Sniper) ackTimer() {
 	}
 }
 
-func (s *Sniper) _ackSender() {
+func (s *Sniper) ackSender() {
 	s.ackLock.Lock()
 	defer s.ackLock.Unlock()
 
@@ -525,8 +518,8 @@ loop:
 		return 0, CLOSEERROR
 
 	default:
-
 	}
+
 	remain := int64(s.maxWin)*(s.packageSize)*2 - int64(len(s.sendCache))
 
 	if remain <= 0 {
@@ -622,7 +615,6 @@ loop:
 		}
 
 		s.writerBlocker.Close()
-		s.ackSign.Close()
 		s.chanCloser.closeChan(s.readBlock)
 
 	} else {

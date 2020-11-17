@@ -303,7 +303,6 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 					sn.isClose = true
 
-					sn.ackSign.Close()
 					sn.chanCloser.closeChan(sn.closeChan)
 
 					if sn.noLeader {
