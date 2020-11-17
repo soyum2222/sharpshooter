@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"fmt"
 	"sync/atomic"
 )
 
@@ -27,18 +28,30 @@ type Ammo struct {
 	ackCount uint32
 }
 
+var emptyAmmo Ammo
+
 func (a *Ammo) AckAdd() uint32 {
 	return atomic.AddUint32(&a.ackCount, 1)
 }
 
-func Unmarshal(b []byte) Ammo {
+func Unmarshal(b []byte) (Ammo, error) {
+
+	if len(b) < 10 {
+		return emptyAmmo, fmt.Errorf("missing length")
+	}
+
 	msg := Ammo{}
 	msg.Length = binary.BigEndian.Uint32(b[:4])
+
+	if int(msg.Length) != len(b)-4 {
+		return emptyAmmo, fmt.Errorf("rogue")
+	}
+
 	msg.Id = binary.BigEndian.Uint32(b[4:8])
 	msg.Kind = binary.BigEndian.Uint16(b[8:10])
 	msg.Body = make([]byte, 0, len(b[10:]))
 	msg.Body = append(msg.Body, b[10:]...)
-	return msg
+	return msg, nil
 }
 
 func Marshal(ammo Ammo) []byte {

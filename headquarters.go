@@ -71,7 +71,13 @@ func Dial(addr string) (net.Conn, error) {
 			_ = conn.Close()
 		}
 
-		if protocol.Unmarshal(secondhand).Kind != protocol.SECONDHANDSHACK {
+		ammo, err := protocol.Unmarshal(secondhand)
+		if err != nil {
+			c <- err
+			return
+		}
+
+		if ammo.Kind != protocol.SECONDHANDSHACK {
 			c <- errors.New("handshake package error")
 		}
 
@@ -223,7 +229,12 @@ func (h *headquarters) monitor() {
 				continue
 			}
 
-			msg := protocol.Unmarshal(b[:n])
+			msg, err := protocol.Unmarshal(b[:n])
+			if err != nil {
+				// bad message
+				continue
+			}
+
 			switch msg.Kind {
 
 			case protocol.FIRSTHANDSHACK:

@@ -570,7 +570,12 @@ func (s *Sniper) monitor() {
 				continue
 			}
 
-			msg := protocol.Unmarshal(b[:n])
+			msg, err := protocol.Unmarshal(b[:n])
+			if err != nil {
+				// bad message
+				continue
+			}
+
 			routing(s, msg)
 		}
 	}
