@@ -14,7 +14,7 @@ It dont has packet characteristics,You can try it to bypassing some protocol cha
     
 About instructions you can see example dir, I provided tow simple example.
     
-If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharpshooterTunel .
+If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharpshooter-tunel .
     
 
 
