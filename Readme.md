@@ -40,6 +40,12 @@ If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharp
         7:health check
         8:response health 
            
+    ACK package
+        
+    | SIZE(4byte) | SQE(4byte) | CMD(2byte) | ackSQE1(4byte)| ackSQE2(4byte) | ackSQE3(4byte) | ... |
+        
+    The package max length can't over DEFAULT_INIT_PACKSIZE or Sniper.packageSize      
+
 
 
 ## Use
