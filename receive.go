@@ -38,7 +38,6 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 		} else {
 			break
 		}
-
 	}
 
 	// cut off

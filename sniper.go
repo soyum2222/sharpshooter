@@ -50,7 +50,6 @@ type Sniper struct {
 	sendId         uint32
 	rcvId          uint32
 	sendWinId      uint32
-	//placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
 
 	isClose   bool
 	noLeader  bool // it not has headquarters
@@ -76,7 +75,6 @@ type Sniper struct {
 	writerBlocker *block.Blocker
 	closeOnce     sync.Once
 	closeChan     chan struct{}
-	stopShotSign  chan struct{}
 	errorSign     chan struct{}
 
 	wrap func()
@@ -141,7 +139,6 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		packageSize:   DEFAULT_INIT_PACKSIZE,
 		writerBlocker: block.NewBlocker(),
 		closeChan:     make(chan struct{}, 0),
-		stopShotSign:  make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
 		interval:      DEFAULT_INIT_INTERVAL,
@@ -453,15 +450,13 @@ func (s *Sniper) handleAck(ids []uint32) {
 	for _, id := range ids {
 
 		if id < atomic.LoadUint32(&s.sendWinId) {
-			s.mu.Unlock()
-			return
+			continue
 		}
 
 		index := int(id) - int(atomic.LoadUint32(&s.sendWinId))
 
 		if index >= len(s.ammoBag) {
-			s.mu.Unlock()
-			return
+			continue
 		}
 		s.ammoBag[index] = nil
 	}

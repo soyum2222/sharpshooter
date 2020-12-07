@@ -39,6 +39,22 @@ func (b *Blocker) Block() (err error) {
 	return
 }
 
+func (b *Blocker) Select() chan struct{} {
+
+	c := make(chan struct{}, 1)
+
+	go func() {
+		select {
+		case b.c <- struct{}{}:
+			c <- struct{}{}
+		case _, _ = <-b.close:
+			close(c)
+		}
+	}()
+
+	return c
+}
+
 func (b *Blocker) Pass() error {
 
 	select {
