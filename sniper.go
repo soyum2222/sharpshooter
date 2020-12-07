@@ -36,17 +36,6 @@ var (
 )
 
 type Sniper struct {
-	isClose        bool
-	noLeader       bool // it not has headquarters
-	staSwitch      bool // statistics switch
-	maxWin         int32
-	healthTryCount int32
-	shootStatus    int32
-	sendId         uint32
-	rcvId          uint32
-	sendWinId      uint32
-	sendBottom     uint32
-	//placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
 	packageSize   int64
 	rtt           int64
 	rto           int64
@@ -54,8 +43,21 @@ type Sniper struct {
 	totalFlow     int64 // statistics total flow used
 	effectiveFlow int64 // statistics effective flow
 	interval      int64
-	sendCache     []byte
-	writer        func(p []byte) (n int, err error)
+
+	maxWin         int32
+	healthTryCount int32
+	shootStatus    int32
+	sendId         uint32
+	rcvId          uint32
+	sendWinId      uint32
+	//placeholder    int32 // in 32 bit OS must 8-byte alignment, this field itself has no meaning
+
+	isClose   bool
+	noLeader  bool // it not has headquarters
+	staSwitch bool // statistics switch
+
+	sendCache []byte
+	writer    func(p []byte) (n int, err error)
 
 	//dead line
 	readDeadline  time.Time
@@ -275,8 +277,6 @@ func (s *Sniper) shoot() {
 
 		s.wrap()
 
-		var currentWindowEndId uint32
-
 		for k := range s.ammoBag {
 
 			if s.ammoBag[k] == nil {
@@ -286,8 +286,6 @@ func (s *Sniper) shoot() {
 			if k > int(s.maxWin) {
 				break
 			}
-
-			currentWindowEndId = s.ammoBag[k].Id
 
 			b := protocol.Marshal(*s.ammoBag[k])
 
@@ -302,15 +300,11 @@ func (s *Sniper) shoot() {
 			}
 
 			s.addTotalFlow(len(b))
-
 		}
-
-		atomic.StoreUint32(&s.sendBottom, currentWindowEndId)
 
 		s.mu.Unlock()
 
 		atomic.StoreInt32(&s.shootStatus, 0)
-
 	}
 
 	rto := atomic.LoadInt64(&s.rto)
