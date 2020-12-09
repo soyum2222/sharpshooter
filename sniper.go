@@ -3,9 +3,9 @@ package sharpshooter
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/soyum2222/sharpshooter/protocol"
 	"github.com/soyum2222/sharpshooter/tool/block"
-	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -21,12 +21,12 @@ const (
 	DEFAULT_INIT_SENDWIND                      = 64
 	DEFAULT_INIT_RECEWIND                      = 1 << 10
 	DEFAULT_INIT_PACKSIZE                      = 1024
-	DEFAULT_INIT_HEALTHTICKER                  = 3
+	DEFAULT_INIT_HEALTHTICKER                  = 1
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 10
 	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
 	DEFAULT_INIT_RTO_UNIT                      = float64(200 * time.Millisecond)
 	DEFAULT_INIT_DELAY_ACK                     = float64(200 * time.Millisecond)
-	DEFAULT_INIT_INTERVAL                      = 100
+	DEFAULT_INIT_INTERVAL                      = 500
 )
 
 var (
@@ -36,10 +36,11 @@ var (
 )
 
 type Sniper struct {
-	packageSize   int64
-	rtt           int64
-	rto           int64
-	timeFlag      int64
+	packageSize int64
+	rtt         int64
+	rto         int64
+	rttTimeFlag int64
+
 	totalFlow     int64 // statistics total flow used
 	effectiveFlow int64 // statistics effective flow
 	interval      int64
@@ -50,10 +51,12 @@ type Sniper struct {
 	sendId         uint32
 	rcvId          uint32
 	sendWinId      uint32
+	rttSampId      uint32
 
 	isClose   bool
 	noLeader  bool // it not has headquarters
 	staSwitch bool // statistics switch
+	rttHelper uint8
 
 	sendCache []byte
 	writer    func(p []byte) (n int, err error)
@@ -214,7 +217,7 @@ func (s *Sniper) healthMonitor() {
 			if s.healthTryCount < DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT {
 
 				if s.healthTryCount == 0 {
-					s.timeFlag = time.Now().UnixNano()
+					//s.timeFlag = time.Now().UnixNano()
 				}
 
 				_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
@@ -284,6 +287,13 @@ func (s *Sniper) shoot() {
 				break
 			}
 
+			if s.rttHelper%16 == 0 && s.rttSampId == 0 {
+				// samp
+				s.rttSampId = s.ammoBag[k].Id
+				s.rttTimeFlag = time.Now().UnixNano()
+			}
+			s.rttHelper++
+
 			b := protocol.Marshal(*s.ammoBag[k])
 
 			_, err := s.conn.WriteToUDP(b, s.aim)
@@ -311,7 +321,8 @@ func (s *Sniper) shoot() {
 		rto = int64(250 * time.Millisecond)
 	}
 
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(200*time.Millisecond))) * time.Nanosecond)
+	//fmt.Printf("rto : %d rtt : %d \n", rto, s.rtt)
+	s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
 }
 
 // remove already sent packages
@@ -361,7 +372,8 @@ func (s *Sniper) shooter() {
 		select {
 
 		case <-s.timeoutTimer.C:
-			s.rto = s.rto * 2
+			//s.rto = s.rto * 2
+			s.zoomoutWin()
 			break
 
 		case <-s.closeChan:
@@ -394,7 +406,7 @@ func (s *Sniper) ack(id uint32) {
 // timed trigger send ack
 func (s *Sniper) ackTimer() {
 
-	timer := time.NewTimer(time.Duration(s.interval) * time.Millisecond)
+	timer := time.NewTimer(time.Duration(30) * time.Millisecond)
 	for {
 
 		s.ackSender()
@@ -407,7 +419,7 @@ func (s *Sniper) ackTimer() {
 			return
 		}
 
-		timer.Reset(time.Duration(math.Min(float64(s.rtt/2), float64(time.Duration(s.interval/4)*time.Millisecond))) * time.Nanosecond)
+		timer.Reset(time.Duration(30) * time.Millisecond)
 	}
 }
 
@@ -447,10 +459,20 @@ func (s *Sniper) ackSender() {
 func (s *Sniper) handleAck(ids []uint32) {
 	s.mu.Lock()
 
+	var exp bool
 	for _, id := range ids {
 
 		if id < atomic.LoadUint32(&s.sendWinId) {
 			continue
+		}
+
+		if id == s.sendId-1 {
+			exp = true
+		}
+
+		if id == s.rttSampId {
+			s.rttSampId = 0
+			s.calrto(time.Now().UnixNano() - s.rttTimeFlag)
 		}
 
 		index := int(id) - int(atomic.LoadUint32(&s.sendWinId))
@@ -458,20 +480,29 @@ func (s *Sniper) handleAck(ids []uint32) {
 		if index >= len(s.ammoBag) {
 			continue
 		}
+
 		s.ammoBag[index] = nil
 	}
 
 	s.mu.Unlock()
-	s.shoot()
+	if exp {
+		s.expandWin()
+		s.shoot()
+	}
+
 	return
 }
 
 func (s *Sniper) zoomoutWin() {
-	s.maxWin -= 1
+	if s.maxWin > 64 {
+		s.maxWin -= 1
+	}
+	fmt.Printf("zoom maxwin %d \n", s.maxWin)
 }
 
 func (s *Sniper) expandWin() {
 	s.maxWin += 1
+	fmt.Printf("expan maxwin %d \n", s.maxWin)
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {

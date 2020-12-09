@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"time"
@@ -32,7 +34,7 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.Lshortfile)
-
+	go func() { http.ListenAndServe(":45671", nil) }()
 	var conn net.Conn
 	var err error
 	if addr != "" {

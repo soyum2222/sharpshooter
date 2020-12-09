@@ -346,12 +346,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 		}), sn.aim)
 
 	case protocol.HEALTCHRESP:
-
 		atomic.StoreInt32(&sn.healthTryCount, 0)
-
-		t := time.Now().UnixNano()
-
-		sn.calrto(t - sn.timeFlag)
 
 	case protocol.NORMAL:
 		sn.rcv(&msg)
