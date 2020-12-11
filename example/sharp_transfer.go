@@ -253,7 +253,6 @@ func receive(conn net.Conn, o string, c bool) {
 	printBar(total, size)
 	conn.Close()
 	os.Exit(0)
-
 }
 
 func progressBar(total, size int64) [100]bool {

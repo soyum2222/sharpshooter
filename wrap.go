@@ -9,7 +9,7 @@ import (
 func (s *Sniper) wrapfec() {
 
 loop:
-	remain := s.maxWin - int32(len(s.ammoBag))
+	remain := s.winSize - int32(len(s.ammoBag))
 
 	if remain <= 0 {
 		return
@@ -64,7 +64,7 @@ loop:
 
 func (s *Sniper) wrapnoml() {
 
-	remain := s.maxWin - int32(len(s.ammoBag))
+	remain := s.winSize - int32(len(s.ammoBag))
 
 	for i := 0; i < int(remain); i++ {
 

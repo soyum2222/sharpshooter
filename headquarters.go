@@ -210,7 +210,7 @@ func (h *headquarters) clear() {
 func (h *headquarters) monitor() {
 	go h.clear()
 
-	b := make([]byte, DEFAULT_INIT_PACKSIZE+20)
+	b := make([]byte, DEFAULT_INIT_PACKSIZE+DEFAULT_HEAD_SIZE)
 	for {
 
 		select {
@@ -293,7 +293,9 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 			// find tail ammo
 			tail := len(sn.ammoBag) - 1
 			if tail > 0 {
-				sn.ammoBag[tail].Kind = protocol.NORMALTAIL
+				if sn.ammoBag[tail] != nil {
+					sn.ammoBag[tail].Kind = protocol.NORMALTAIL
+				}
 			}
 			sn.mu.Unlock()
 

@@ -3,10 +3,11 @@ package sharpshooter
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"github.com/soyum2222/sharpshooter/protocol"
 	"github.com/soyum2222/sharpshooter/tool/block"
+	"math"
 	"net"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,9 +19,10 @@ const (
 )
 
 const (
+	DEFAULT_HEAD_SIZE                          = 20
 	DEFAULT_INIT_SENDWIND                      = 64
 	DEFAULT_INIT_RECEWIND                      = 1 << 10
-	DEFAULT_INIT_PACKSIZE                      = 1024
+	DEFAULT_INIT_PACKSIZE                      = 1000
 	DEFAULT_INIT_HEALTHTICKER                  = 1
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 10
 	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
@@ -45,7 +47,8 @@ type Sniper struct {
 	effectiveFlow int64 // statistics effective flow
 	interval      int64
 
-	maxWin         int32
+	winSize        int32
+	minSize        int32
 	healthTryCount int32
 	shootStatus    int32
 	sendId         uint32
@@ -90,6 +93,7 @@ type Sniper struct {
 
 	errorContainer atomic.Value
 	ackCache       []uint32
+	ackSendCache   []uint32
 
 	// ack lock
 	ackLock sync.Mutex
@@ -136,7 +140,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		rcvAmmoBag:    make([]*protocol.Ammo, DEFAULT_INIT_RECEWIND),
 		handShakeSign: make(chan struct{}, 1),
 		readBlock:     make(chan struct{}, 0),
-		maxWin:        DEFAULT_INIT_SENDWIND,
+		winSize:       DEFAULT_INIT_SENDWIND,
 		mu:            sync.Mutex{},
 		bemu:          sync.Mutex{},
 		packageSize:   DEFAULT_INIT_PACKSIZE,
@@ -145,6 +149,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		errorSign:     make(chan struct{}),
 		sendCache:     make([]byte, 0),
 		interval:      DEFAULT_INIT_INTERVAL,
+		minSize:       64,
 	}
 
 	sn.rcv = sn.rcvnoml
@@ -171,11 +176,11 @@ func (s *Sniper) FlowStatistics() (total int64, effective int64) {
 	return s.totalFlow, s.effectiveFlow
 }
 
-func (s *Sniper) SetPackageSize(size int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.packageSize = size
-}
+//func (s *Sniper) SetPackageSize(size int64) {
+//	s.mu.Lock()
+//	defer s.mu.Unlock()
+//	s.packageSize = size
+//}
 
 func (s *Sniper) SetRecWin(size int64) {
 	s.bemu.Lock()
@@ -186,7 +191,8 @@ func (s *Sniper) SetRecWin(size int64) {
 func (s *Sniper) SetSendWin(size int32) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
-	s.maxWin = size
+	s.minSize = size
+	s.winSize = size
 }
 
 func (s *Sniper) SetInterval(interval int64) {
@@ -283,7 +289,7 @@ func (s *Sniper) shoot() {
 				continue
 			}
 
-			if k > int(s.maxWin) {
+			if k > int(s.winSize) {
 				break
 			}
 
@@ -322,14 +328,15 @@ func (s *Sniper) shoot() {
 	}
 
 	//fmt.Printf("rto : %d rtt : %d \n", rto, s.rtt)
-	s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
+	//s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
+	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(time.Duration(s.interval)*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
 func (s *Sniper) flush() {
 
 	defer func() {
-		remain := int64(s.maxWin)*(s.packageSize)*2 - int64(len(s.sendCache))
+		remain := int64(s.winSize)*(s.packageSize)*2 - int64(len(s.sendCache))
 		if remain > 0 {
 			_ = s.writerBlocker.Pass()
 		}
@@ -399,7 +406,9 @@ func (s *Sniper) ack(id uint32) {
 
 	s.ackLock.Unlock()
 	if len(s.ackCache) > int(s.packageSize/4) {
-		s.ackSender()
+		if s.wrapACK() {
+			s.ackSender()
+		}
 	}
 }
 
@@ -409,6 +418,7 @@ func (s *Sniper) ackTimer() {
 	timer := time.NewTimer(time.Duration(30) * time.Millisecond)
 	for {
 
+		s.wrapACK()
 		s.ackSender()
 
 		select {
@@ -425,15 +435,16 @@ func (s *Sniper) ackTimer() {
 
 func (s *Sniper) ackSender() {
 	s.ackLock.Lock()
+
 	defer s.ackLock.Unlock()
 
-	l := len(s.ackCache)
+	l := len(s.ackSendCache)
 	if l != 0 {
 
 		b := make([]byte, l*4)
 
-		for i := 0; i < len(s.ackCache); i++ {
-			binary.BigEndian.PutUint32(b[4*i:(i+1)*4], s.ackCache[i])
+		for i := 0; i < len(s.ackSendCache); i++ {
+			binary.BigEndian.PutUint32(b[4*i:(i+1)*4], s.ackSendCache[i])
 		}
 
 		ammo := protocol.Ammo{
@@ -441,7 +452,7 @@ func (s *Sniper) ackSender() {
 			Body: b,
 		}
 
-		s.ackCache = s.ackCache[0:0]
+		s.ackSendCache = s.ackSendCache[0:0]
 
 		_, err := s.conn.WriteToUDP(protocol.Marshal(ammo), s.aim)
 		if err != nil {
@@ -455,10 +466,119 @@ func (s *Sniper) ackSender() {
 	}
 }
 
+func (s *Sniper) wrapACK() bool {
+
+	s.ackLock.Lock()
+	defer s.ackLock.Unlock()
+
+	//fmt.Printf("wrapack %v\n", s.ackCache)
+	//defer func() { fmt.Printf("wrapacked %v\n", s.ackSendCache) }()
+
+	if len(s.ackCache) == 0 {
+		return false
+	}
+
+	sortCache := make([]int, len(s.ackCache))
+
+	for k, v := range s.ackCache {
+		sortCache[k] = int(v)
+	}
+
+	sort.Ints(sortCache)
+
+	for k, v := range sortCache {
+		s.ackCache[k] = uint32(v)
+	}
+
+loop:
+
+	last := s.ackCache[0]
+	var count uint32
+	for i := 1; i < len(s.ackCache); i++ {
+
+		if s.ackCache[i] == last {
+			s.ackCache = s.ackCache[1:]
+			goto loop
+		}
+		if s.ackCache[i] == last+1+count {
+			count++
+		} else {
+			break
+		}
+	}
+
+	if count != 0 {
+		if count > 2 {
+
+			if len(s.ackSendCache)+(3*4)+DEFAULT_HEAD_SIZE > DEFAULT_INIT_PACKSIZE {
+				return true
+			}
+
+			if len(s.ackSendCache) > 0 && s.ackSendCache[len(s.ackSendCache)-1] == last {
+				s.ackSendCache = append(s.ackSendCache[:len(s.ackSendCache)-1], []uint32{uint32(last + count)}...)
+			} else {
+				s.ackSendCache = append(s.ackSendCache, []uint32{uint32(last), uint32(last), uint32(last + count)}...)
+			}
+			s.ackCache = s.ackCache[count+1:]
+
+		} else {
+			for j := uint32(0); j <= count; j++ {
+				if len(s.ackSendCache)+(1*4)+DEFAULT_HEAD_SIZE > DEFAULT_INIT_PACKSIZE {
+					return true
+				}
+
+				if len(s.ackSendCache) == 0 || s.ackSendCache[len(s.ackSendCache)-1] != last+j {
+					s.ackSendCache = append(s.ackSendCache, last+j)
+				}
+			}
+			s.ackCache = s.ackCache[count+1:]
+		}
+
+	} else {
+		if len(s.ackSendCache)+(1*4)+DEFAULT_HEAD_SIZE > DEFAULT_INIT_PACKSIZE {
+			return true
+		}
+
+		if len(s.ackSendCache) == 0 || s.ackSendCache[len(s.ackSendCache)-1] != last {
+			s.ackSendCache = append(s.ackSendCache, last)
+		}
+		s.ackCache = s.ackCache[1:]
+	}
+
+	if len(s.ackCache) != 0 {
+		goto loop
+	}
+
+	return false
+}
+
+func unWrapACK(ids []uint32) []uint32 {
+
+	result := make([]uint32, 0, len(ids))
+	var last uint32
+	for i := 0; i < len(ids); i++ {
+		if last != 0 && ids[i] == last && i+1 < len(ids) {
+
+			for j := last + 1; j <= ids[i+1]; j++ {
+				result = append(result, j)
+			}
+			i++
+			continue
+		} else {
+			result = append(result, ids[i])
+		}
+		last = ids[i]
+	}
+
+	//fmt.Printf("src :%v \n res :%v\n", ids, result)
+	return result
+}
+
 // receive ack
 func (s *Sniper) handleAck(ids []uint32) {
 	s.mu.Lock()
 
+	ids = unWrapACK(ids)
 	var exp bool
 	for _, id := range ids {
 
@@ -494,15 +614,15 @@ func (s *Sniper) handleAck(ids []uint32) {
 }
 
 func (s *Sniper) zoomoutWin() {
-	if s.maxWin > 64 {
-		s.maxWin -= 1
+	if s.winSize > s.minSize {
+		s.winSize -= 1
 	}
-	fmt.Printf("zoom maxwin %d \n", s.maxWin)
+	//fmt.Printf("zoom maxwin %d \n", s.winSize)
 }
 
 func (s *Sniper) expandWin() {
-	s.maxWin += 1
-	fmt.Printf("expan maxwin %d \n", s.maxWin)
+	s.winSize += 1
+	//fmt.Printf("expan maxwin %d \n", s.winSize)
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {
@@ -540,7 +660,7 @@ loop:
 	default:
 	}
 
-	remain := int64(s.maxWin)*(s.packageSize)*2 - int64(len(s.sendCache))
+	remain := int64(s.winSize)*(s.packageSize)*2 - int64(len(s.sendCache))
 
 	if remain <= 0 {
 		s.mu.Unlock()
