@@ -45,6 +45,14 @@ If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharp
     | SIZE(4byte) | SQE(4byte) | CMD(2byte) | ackSQE1(4byte)| ackSQE2(4byte) | ackSQE3(4byte) | ... |
         
     The package max length can't over DEFAULT_INIT_PACKSIZE or Sniper.packageSize      
+    
+    When receive ack like :
+    
+        | SIZE(4byte) | SQE(4byte) | CMD(2byte) | ackSQE1(4byte)| ackSQE2(4byte) | ackSQE3(4byte) |
+        
+    if ackSQE1 == ackSQE2 and ackSQE1 < ackSQE3 this situation means ackSQE1 to ackSQE3 is continuous number .
+    
+    eg:  receive data : |0|0|0|1|1|10| , this means other party sent ack 1 to 10.
 
 
 
