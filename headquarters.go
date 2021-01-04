@@ -56,13 +56,14 @@ func Dial(addr string) (net.Conn, error) {
 
 		case <-func() chan struct{} {
 			ch := make(chan struct{})
-			_, err = sn.conn.Read(secondhand)
-			if err != nil {
-				c <- err
-			}
 
-			// here close is absolutely safe
-			close(ch)
+			go func() {
+				_, err = sn.conn.Read(secondhand)
+				if err != nil {
+					c <- err
+				}
+				close(ch)
+			}()
 
 			return ch
 		}():
