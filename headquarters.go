@@ -89,6 +89,7 @@ func Dial(addr string) (net.Conn, error) {
 loop:
 
 	if i > 6 {
+		_ = sn.Close()
 		return nil, errors.New("dial timeout")
 	}
 
