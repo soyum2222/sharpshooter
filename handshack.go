@@ -67,8 +67,7 @@ func thirdHandShack(h *headquarters, remote net.Addr) {
 
 	sn := i.(*Sniper)
 
-	sn.healthTimer = time.NewTimer(time.Second * 3)
-	go sn.healthMonitor()
+	SystemTimedSched.Put(sn.healthMonitor, time.Now().Add(time.Second*3))
 
 	select {
 	case sn.handShakeSign <- struct{}{}:

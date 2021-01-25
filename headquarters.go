@@ -122,10 +122,10 @@ loop:
 
 	go sn.ackTimer()
 
-	sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
-	go sn.shooter()
-	sn.healthTimer = time.NewTimer(time.Second * 3)
-	go sn.healthMonitor()
+	SystemTimedSched.Put(sn.shoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
+
+	SystemTimedSched.Put(sn.healthMonitor, time.Now().Add(time.Second*3))
+
 	go sn.monitor()
 
 	return sn, nil
@@ -165,8 +165,9 @@ func (h *headquarters) Accept() (net.Conn, error) {
 	select {
 	case sn := <-h.accept:
 		go sn.ackTimer()
-		sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
-		go sn.shooter()
+		//sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
+		//go sn.shooter()
+		SystemTimedSched.Put(sn.shoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
 		return sn, nil
 
 	case <-h.errorSign:

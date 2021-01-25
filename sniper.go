@@ -46,6 +46,7 @@ type Sniper struct {
 	totalFlow     int64 // statistics total flow used
 	effectiveFlow int64 // statistics effective flow
 	interval      int64
+	timeAnchor    int64
 
 	winSize        int32
 	minSize        int32
@@ -69,10 +70,9 @@ type Sniper struct {
 	deadline      time.Time
 	writeDeadline time.Time
 
-	aim           *net.UDPAddr
-	conn          *net.UDPConn
-	timeoutTimer  *time.Timer
-	healthTimer   *time.Timer
+	aim  *net.UDPAddr
+	conn *net.UDPConn
+
 	ammoBag       []*protocol.Ammo
 	rcvAmmoBag    []*protocol.Ammo
 	rcvCache      []byte
@@ -215,52 +215,49 @@ func (s *Sniper) OpenFec(dataShards, parShards int) {
 
 func (s *Sniper) healthMonitor() {
 
-	for {
+	select {
+	default:
 
-		select {
-		case <-s.healthTimer.C:
+		if s.healthTryCount < DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT {
 
-			if s.healthTryCount < DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT {
+			if s.healthTryCount == 0 {
+				//s.timeFlag = time.Now().UnixNano()
+			}
 
-				if s.healthTryCount == 0 {
-					//s.timeFlag = time.Now().UnixNano()
-				}
+			_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
+				Kind: protocol.HEALTHCHECK,
+			}), s.aim)
 
-				_, _ = s.conn.WriteToUDP(protocol.Marshal(protocol.Ammo{
-					Kind: protocol.HEALTHCHECK,
-				}), s.aim)
+			atomic.AddInt32(&s.healthTryCount, 1)
 
-				atomic.AddInt32(&s.healthTryCount, 1)
+			SystemTimedSched.Put(s.healthMonitor, time.Now().Add(time.Second*DEFAULT_INIT_HEALTHTICKER))
 
-				s.healthTimer.Reset(time.Second * DEFAULT_INIT_HEALTHTICKER)
-
-			} else {
-				// timeout
-				s.clock.Lock()
-				defer s.clock.Unlock()
-				if s.isClose {
-					return
-				}
-
-				s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
-				s.chanCloser.closeChan(s.errorSign)
-
-				s.writerBlocker.Close()
-
-				if s.noLeader {
-					_ = s.conn.Close()
-				}
-
-				s.isClose = true
-				s.chanCloser.closeChan(s.closeChan)
-				s.chanCloser.closeChan(s.readBlock)
+		} else {
+			// timeout
+			s.clock.Lock()
+			defer s.clock.Unlock()
+			if s.isClose {
 				return
 			}
 
-		case _, _ = <-s.closeChan:
-			// if come here , then close func has been executed
+			s.errorContainer.Store(errors.New(HEALTHTIMEOUTERROR.Error()))
+			s.chanCloser.closeChan(s.errorSign)
+
+			s.writerBlocker.Close()
+
+			if s.noLeader {
+				_ = s.conn.Close()
+			}
+
+			s.isClose = true
+			s.chanCloser.closeChan(s.closeChan)
+			s.chanCloser.closeChan(s.readBlock)
 			return
 		}
+
+	case _, _ = <-s.closeChan:
+		// if come here , then close func has been executed
+		return
 	}
 }
 
@@ -268,13 +265,20 @@ func (s *Sniper) healthMonitor() {
 func (s *Sniper) shoot() {
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
 
+		var active bool
+		now := time.Now()
+		if now.Unix()-s.timeAnchor >= 0 {
+			s.zoomoutWin()
+		} else {
+			active = true
+		}
+
 		select {
 		case <-s.errorSign:
 			return
 		case <-s.closeChan:
 			return
 		default:
-
 		}
 
 		s.mu.Lock()
@@ -296,7 +300,7 @@ func (s *Sniper) shoot() {
 			if s.rttHelper%16 == 0 && s.rttSampId == 0 {
 				// samp
 				s.rttSampId = s.ammoBag[k].Id
-				s.rttTimeFlag = time.Now().UnixNano()
+				s.rttTimeFlag = now.UnixNano()
 			}
 			s.rttHelper++
 
@@ -318,18 +322,22 @@ func (s *Sniper) shoot() {
 		s.mu.Unlock()
 
 		atomic.StoreInt32(&s.shootStatus, 0)
+
+		rto := atomic.LoadInt64(&s.rto)
+
+		// maybe overflow
+		if rto <= 0 {
+			rto = int64(250 * time.Millisecond)
+		}
+
+		interval := time.Duration(math.Min(float64(rto), float64(time.Duration(s.interval)*time.Millisecond))) * time.Nanosecond
+		shootTime := now.Add(interval)
+		s.timeAnchor = shootTime.Unix()
+
+		if !active {
+			SystemTimedSched.Put(s.shoot, shootTime)
+		}
 	}
-
-	rto := atomic.LoadInt64(&s.rto)
-
-	// maybe overflow
-	if rto <= 0 {
-		rto = int64(250 * time.Millisecond)
-	}
-
-	//fmt.Printf("rto : %d rtt : %d \n", rto, s.rtt)
-	//s.timeoutTimer.Reset(time.Duration(rto) * time.Nanosecond)
-	s.timeoutTimer.Reset(time.Duration(math.Min(float64(rto), float64(time.Duration(s.interval)*time.Millisecond))) * time.Nanosecond)
 }
 
 // remove already sent packages
@@ -371,26 +379,6 @@ func (s *Sniper) flush() {
 	atomic.StoreUint32(&s.sendWinId, s.ammoBag[0].Id)
 }
 
-// timed trigger send
-func (s *Sniper) shooter() {
-
-	for {
-
-		select {
-
-		case <-s.timeoutTimer.C:
-			//s.rto = s.rto * 2
-			s.zoomoutWin()
-			break
-
-		case <-s.closeChan:
-			return
-		}
-
-		s.shoot()
-	}
-}
-
 func (s *Sniper) ack(id uint32) {
 
 	s.ackLock.Lock()
@@ -415,22 +403,16 @@ func (s *Sniper) ack(id uint32) {
 // timed trigger send ack
 func (s *Sniper) ackTimer() {
 
-	timer := time.NewTimer(time.Duration(30) * time.Millisecond)
-	for {
+	s.wrapACK()
+	s.ackSender()
 
-		s.wrapACK()
-		s.ackSender()
+	select {
+	default:
 
-		select {
-		case <-timer.C:
-
-		case <-s.closeChan:
-			timer.Stop()
-			return
-		}
-
-		timer.Reset(time.Duration(30) * time.Millisecond)
+	case <-s.closeChan:
+		return
 	}
+	SystemTimedSched.Put(s.ackTimer, time.Now().Add(time.Millisecond*30))
 }
 
 func (s *Sniper) ackSender() {
@@ -617,12 +599,10 @@ func (s *Sniper) zoomoutWin() {
 	if s.winSize > s.minSize {
 		s.winSize -= 1
 	}
-	//fmt.Printf("zoom maxwin %d \n", s.winSize)
 }
 
 func (s *Sniper) expandWin() {
 	s.winSize += 1
-	//fmt.Printf("expan maxwin %d \n", s.winSize)
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {
