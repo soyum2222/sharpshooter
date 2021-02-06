@@ -64,36 +64,50 @@ loop:
 			} else {
 				tick.Reset(time.Duration(remainTime) * time.Nanosecond)
 			}
-
-		} else {
-
-			if tick == nil {
-				tick = time.NewTicker(time.Second)
-			} else {
-				tick.Reset(time.Second)
-			}
 		}
 
-		select {
-		case _, ok := <-s.readBlock:
-			if !ok {
-				return 0, CLOSEERROR
-			}
-			goto loop
+		if tick != nil {
 
-		case _, _ = <-s.closeChan:
-			if closeRet {
-				return 0, CLOSEERROR
-			}
-			closeRet = true
-			goto loop
+			select {
+			case _, ok := <-s.readBlock:
+				if !ok {
+					return 0, CLOSEERROR
+				}
+				goto loop
 
-		case <-s.errorSign:
-			return 0, s.errorContainer.Load().(error)
-		case <-tick.C:
-			now := time.Now()
-			if (!s.readDeadline.IsZero() && s.readDeadline.Before(now)) || (s.deadline.Before(now) && !s.deadline.IsZero()) {
-				return 0, TIMEOUERROR
+			case _, _ = <-s.closeChan:
+				if closeRet {
+					return 0, CLOSEERROR
+				}
+				closeRet = true
+				goto loop
+
+			case <-s.errorSign:
+				return 0, s.errorContainer.Load().(error)
+			case <-tick.C:
+				now := time.Now()
+				if (!s.readDeadline.IsZero() && s.readDeadline.Before(now)) || (s.deadline.Before(now) && !s.deadline.IsZero()) {
+					return 0, TIMEOUERROR
+				}
+			}
+		} else {
+
+			select {
+			case _, ok := <-s.readBlock:
+				if !ok {
+					return 0, CLOSEERROR
+				}
+				goto loop
+
+			case _, _ = <-s.closeChan:
+				if closeRet {
+					return 0, CLOSEERROR
+				}
+				closeRet = true
+				goto loop
+
+			case <-s.errorSign:
+				return 0, s.errorContainer.Load().(error)
 			}
 		}
 		goto recheck
