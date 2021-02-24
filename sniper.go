@@ -265,14 +265,7 @@ func (s *Sniper) healthMonitor() {
 func (s *Sniper) shoot() {
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
 
-		var active bool
-		now := time.Now()
-		if now.Unix()-s.timeAnchor >= 0 {
-			s.zoomoutWin()
-		} else {
-			active = true
-		}
-
+		defer atomic.StoreInt32(&s.shootStatus, 0)
 		select {
 		case <-s.errorSign:
 			return
@@ -286,6 +279,19 @@ func (s *Sniper) shoot() {
 		s.flush()
 
 		s.wrap()
+
+		if len(s.ammoBag) == 0 {
+			s.mu.Unlock()
+			return
+		}
+
+		var active bool
+		now := time.Now()
+		if now.Unix()-s.timeAnchor >= 0 {
+			s.zoomoutWin()
+		} else {
+			active = true
+		}
 
 		for k := range s.ammoBag {
 
@@ -320,8 +326,6 @@ func (s *Sniper) shoot() {
 		}
 
 		s.mu.Unlock()
-
-		atomic.StoreInt32(&s.shootStatus, 0)
 
 		rto := atomic.LoadInt64(&s.rto)
 
@@ -453,9 +457,6 @@ func (s *Sniper) wrapACK() bool {
 	s.ackLock.Lock()
 	defer s.ackLock.Unlock()
 
-	//fmt.Printf("wrapack %v\n", s.ackCache)
-	//defer func() { fmt.Printf("wrapacked %v\n", s.ackSendCache) }()
-
 	if len(s.ackCache) == 0 {
 		return false
 	}
@@ -552,7 +553,6 @@ func unWrapACK(ids []uint32) []uint32 {
 		last = ids[i]
 	}
 
-	//fmt.Printf("src :%v \n res :%v\n", ids, result)
 	return result
 }
 
@@ -649,7 +649,7 @@ loop:
 		goto loop
 	}
 
-	if remain >= int64(len(b)) {
+	if remain >= int64(n) {
 
 		// if appending sendCache don't have enough cap , will malloc a new memory
 		// old memory will be GC
