@@ -602,13 +602,14 @@ func (s *Sniper) handleAck(ids []uint32) {
 }
 
 func (s *Sniper) zoomoutWin() {
-	if s.winSize > s.minSize {
-		s.winSize = s.winSize / 2
+	s.winSize = int32(float64(s.winSize) / 1.25)
+	if s.winSize < s.minSize {
+		s.winSize = s.minSize
 	}
 }
 
 func (s *Sniper) expandWin() {
-	s.winSize += (s.minSize*2)/s.winSize + 1
+	s.winSize = int32(float64(s.minSize) * 1.25)
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {
