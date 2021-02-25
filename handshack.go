@@ -22,6 +22,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 
 		var try int
 		ticker := time.NewTicker(time.Millisecond * 200)
+		defer ticker.Stop()
 
 	loop:
 
