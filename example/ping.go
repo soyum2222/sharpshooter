@@ -12,7 +12,7 @@ import (
 
 func main() {
 
-	go http.ListenAndServe(":8888", nil)
+	go http.ListenAndServe(":18888", nil)
 
 	conn, err := sharpshooter.Dial("127.0.0.1:8858")
 	if err != nil {

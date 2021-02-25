@@ -282,12 +282,13 @@ func (s *Sniper) shoot() {
 
 		if len(s.ammoBag) == 0 {
 			s.mu.Unlock()
+			s.timeAnchor = 0
 			return
 		}
 
 		var active bool
 		now := time.Now()
-		if now.Unix()-s.timeAnchor >= 0 {
+		if now.Unix()-s.timeAnchor >= 0 && s.timeAnchor != 0 {
 			s.zoomoutWin()
 		} else {
 			active = true
@@ -574,7 +575,12 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 		if id == s.rttSampId {
 			s.rttSampId = 0
-			s.calrto(time.Now().UnixNano() - s.rttTimeFlag)
+			rtt := time.Now().UnixNano() - s.rttTimeFlag
+
+			// collect
+			if rtt/s.rtt < 2 {
+				s.calrto(rtt)
+			}
 		}
 
 		index := int(id) - int(atomic.LoadUint32(&s.sendWinId))
@@ -597,12 +603,12 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 func (s *Sniper) zoomoutWin() {
 	if s.winSize > s.minSize {
-		s.winSize -= 1
+		s.winSize = s.winSize / 2
 	}
 }
 
 func (s *Sniper) expandWin() {
-	s.winSize += 1
+	s.winSize += (s.minSize*2)/s.winSize + 1
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {
