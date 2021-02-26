@@ -286,12 +286,9 @@ func (s *Sniper) shoot() {
 			return
 		}
 
-		var active bool
 		now := time.Now()
 		if now.Unix()-s.timeAnchor >= 0 && s.timeAnchor != 0 {
 			s.zoomoutWin()
-		} else {
-			active = true
 		}
 
 		for k := range s.ammoBag {
@@ -339,9 +336,7 @@ func (s *Sniper) shoot() {
 		shootTime := now.Add(interval)
 		s.timeAnchor = shootTime.Unix()
 
-		if !active {
-			SystemTimedSched.Put(s.shoot, shootTime)
-		}
+		SystemTimedSched.Put(s.shoot, shootTime)
 	}
 }
 
