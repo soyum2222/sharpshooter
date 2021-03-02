@@ -48,7 +48,7 @@ func Dial(addr string) (net.Conn, error) {
 
 	go func() {
 
-		secondhand := make([]byte, 10)
+		secondhand := make([]byte, 14)
 
 		ctx, _ := context.WithTimeout(context.Background(), time.Second*6)
 

@@ -30,7 +30,7 @@ func compAmmo(a1, a2 Ammo) bool {
 
 func TestMarshalUnmarshal(t *testing.T) {
 	ammo := Ammo{
-		Length: 6,
+		Length: 10,
 		Id:     1,
 		Kind:   1,
 		Body:   make([]byte, 0),
@@ -80,7 +80,7 @@ func TestRogue(t *testing.T) {
 		t.Fail()
 	}
 
-	binary.BigEndian.PutUint32(b[0:4], 16)
+	binary.BigEndian.PutUint32(b[0:4], 20)
 	_, err = Unmarshal(b)
 	if err != nil {
 		t.Fail()
