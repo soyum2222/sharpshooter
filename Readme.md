@@ -6,17 +6,17 @@
  
 
 
-Sharpshooter is a reliability network protocol useing UDP.
+Sharpshooter is a reliability network protocol using UDP.
     
 It is a connection-oriented protocol just like TCP.
     
-It dont has packet characteristics,You can try it to bypassing some protocol characteristics detection,and base for P2P application transport protocol.
+It doesn't have packet characteristics,You can try it to bypassing some protocol characteristics detection,and base for P2P application transport protocol.
     
-About instructions you can see example dir, I provided tow simple example.
+About instructions , you can see example dir, I provided tow simple example.
     
 If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharpshooter-tunel .
     
-
+    
 
 ## Specification
 
@@ -53,8 +53,6 @@ If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharp
     if ackSQE1 == ackSQE2 and ackSQE1 < ackSQE3 this situation means ackSQE1 to ackSQE3 is continuous number .
     
     eg:  receive data : |0|0|0|1|1|10| , this means other party sent ack 1 to 10.
-
-
 
 ## Use
 
