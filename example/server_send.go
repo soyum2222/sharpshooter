@@ -17,7 +17,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//conn.OpenStaFlow()
+	//conn.OpenStaTraffic()
 
 	file, err := os.Open("./test")
 	if err != nil {
@@ -29,5 +29,5 @@ func main() {
 		panic(err)
 	}
 
-	//fmt.Println(conn.FlowStatistics())
+	//fmt.Println(conn.TrafficStatistics())
 }

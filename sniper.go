@@ -38,15 +38,14 @@ var (
 )
 
 type Sniper struct {
+	Statistics
 	packageSize int64
 	rtt         int64
 	rto         int64
 	rttTimeFlag int64
 
-	totalFlow     int64 // statistics total flow used
-	effectiveFlow int64 // statistics effective flow
-	interval      int64
-	timeAnchor    int64
+	interval   int64
+	timeAnchor int64
 
 	winSize        int32
 	minSize        int32
@@ -107,6 +106,13 @@ type Sniper struct {
 	chanCloser chanCloser
 }
 
+type Statistics struct {
+	TotalTraffic     int64
+	EffectiveTraffic int64
+	TotalPacket      int64
+	EffectivePacket  int64
+}
+
 func (s *Sniper) LocalAddr() net.Addr {
 	return s.conn.LocalAddr()
 }
@@ -160,27 +166,46 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 	return sn
 }
 
-func (s *Sniper) addTotalFlow(flow int) {
+func (s *Sniper) addTotalTraffic(flow int) {
 	if s.staSwitch {
-		s.totalFlow += int64(flow)
+		s.TotalTraffic += int64(flow)
 	}
 }
 
-func (s *Sniper) addEffectFlow(flow int) {
+func (s *Sniper) addTotalPacket(n int) {
 	if s.staSwitch {
-		s.effectiveFlow += int64(flow)
+		s.TotalPacket += int64(n)
 	}
 }
 
-func (s *Sniper) FlowStatistics() (total int64, effective int64) {
-	return s.totalFlow, s.effectiveFlow
+func (s *Sniper) addEffectivePacket(n int) {
+	if s.staSwitch {
+		s.EffectivePacket += int64(n)
+	}
 }
 
-//func (s *Sniper) SetPackageSize(size int64) {
-//	s.mu.Lock()
-//	defer s.mu.Unlock()
-//	s.packageSize = size
-//}
+func (s *Sniper) CleanStatistics() {
+	s.EffectivePacket = 0
+	s.EffectiveTraffic = 0
+	s.TotalPacket = 0
+	s.TotalTraffic = 0
+}
+
+func (s *Sniper) addEffectTraffic(flow int) {
+	if s.staSwitch {
+		s.EffectiveTraffic += int64(flow)
+	}
+}
+
+func (s *Sniper) TrafficStatistics() Statistics {
+	return s.Statistics
+}
+
+func (s *Sniper) SetPackageSize(size int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.packageSize = size
+}
 
 func (s *Sniper) SetRecWin(size int64) {
 	s.bemu.Lock()
@@ -199,7 +224,7 @@ func (s *Sniper) SetInterval(interval int64) {
 	s.interval = interval
 }
 
-func (s *Sniper) OpenStaFlow() {
+func (s *Sniper) OpenStaTraffic() {
 	s.staSwitch = true
 }
 
@@ -320,7 +345,8 @@ func (s *Sniper) shoot() {
 				}
 			}
 
-			s.addTotalFlow(len(b))
+			s.addTotalTraffic(len(b))
+			s.addTotalPacket(1)
 		}
 
 		s.mu.Unlock()
@@ -657,7 +683,7 @@ loop:
 		// old memory will be GC
 		// if the slice cap too small , then malloc new memory often happen , this will affect performance
 		s.sendCache = append(s.sendCache, b...)
-		s.addEffectFlow(len(b))
+		s.addEffectTraffic(len(b))
 
 		if len(s.ammoBag) == 0 {
 			s.mu.Unlock()

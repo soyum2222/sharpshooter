@@ -55,8 +55,8 @@ loop:
 			Body: v,
 		}
 
+		s.addEffectivePacket(1)
 		s.ammoBag = append(s.ammoBag, &ammo)
-
 	}
 
 	goto loop
@@ -95,6 +95,7 @@ func (s *Sniper) wrapnoml() {
 			Body: body,
 		}
 
+		s.addEffectivePacket(1)
 		s.ammoBag = append(s.ammoBag, &ammo)
 	}
 }
