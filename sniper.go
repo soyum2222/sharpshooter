@@ -111,6 +111,10 @@ type Statistics struct {
 	EffectiveTraffic int64
 	TotalPacket      int64
 	EffectivePacket  int64
+	RTT              int64
+	RTO              int64
+	SendWin          int64
+	ReceiveWin       int64
 }
 
 func (s *Sniper) LocalAddr() net.Addr {
@@ -198,12 +202,20 @@ func (s *Sniper) addEffectTraffic(flow int) {
 }
 
 func (s *Sniper) TrafficStatistics() Statistics {
+	s.RTO = s.rto
+	s.RTT = s.rtt
+	s.SendWin = int64(s.winSize)
+	s.ReceiveWin = int64(len(s.rcvAmmoBag))
 	return s.Statistics
 }
 
 func (s *Sniper) SetPackageSize(size int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if size == 0 {
+		size = 512
+	}
 	s.packageSize = size
 }
 
@@ -358,7 +370,10 @@ func (s *Sniper) shoot() {
 			rto = int64(250 * time.Millisecond)
 		}
 
-		interval := time.Duration(math.Min(float64(rto), float64(time.Duration(s.interval)*time.Millisecond))) * time.Nanosecond
+		interval := time.Duration(
+			math.Min(float64(rto+int64(30*time.Millisecond)),
+				float64(time.Duration(s.interval)*time.Millisecond)),
+		) * time.Nanosecond
 		shootTime := now.Add(interval)
 		s.timeAnchor = shootTime.Unix()
 
@@ -590,16 +605,12 @@ func (s *Sniper) handleAck(ids []uint32) {
 			continue
 		}
 
-		if id == s.sendId-1 {
-			exp = true
-		}
-
 		if id == s.rttSampId {
 			s.rttSampId = 0
 			rtt := time.Now().UnixNano() - s.rttTimeFlag
 
 			// collect
-			if rtt/s.rtt < 2 {
+			if rtt/s.rtt < 3 {
 				s.calrto(rtt)
 			}
 		}
@@ -611,6 +622,17 @@ func (s *Sniper) handleAck(ids []uint32) {
 		}
 
 		s.ammoBag[index] = nil
+
+		if id == s.sendId-1 {
+			exp = true
+			for i := range s.ammoBag {
+				if s.ammoBag[i] != nil {
+					exp = false
+					break
+				}
+			}
+		}
+
 	}
 
 	s.mu.Unlock()
