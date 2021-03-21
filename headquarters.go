@@ -122,7 +122,7 @@ loop:
 
 	go sn.ackTimer()
 
-	SystemTimedSched.Put(sn.shoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
+	SystemTimedSched.Put(sn.autoShoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
 
 	SystemTimedSched.Put(sn.healthMonitor, time.Now().Add(time.Second*3))
 
@@ -167,7 +167,7 @@ func (h *headquarters) Accept() (net.Conn, error) {
 		go sn.ackTimer()
 		//sn.timeoutTimer = time.NewTimer(time.Duration(sn.rto) * time.Nanosecond)
 		//go sn.shooter()
-		SystemTimedSched.Put(sn.shoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
+		SystemTimedSched.Put(sn.autoShoot, time.Now().Add(time.Duration(sn.rto)*time.Nanosecond))
 		return sn, nil
 
 	case <-h.errorSign:
@@ -335,7 +335,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 				} else {
 					sn.bemu.Unlock()
-					sn.shoot()
+					sn.shoot(false)
 					try++
 					goto l
 				}

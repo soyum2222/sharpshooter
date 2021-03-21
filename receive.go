@@ -1,6 +1,10 @@
 package sharpshooter
 
-import "github.com/soyum2222/sharpshooter/protocol"
+import (
+	"fmt"
+	"github.com/soyum2222/sharpshooter/protocol"
+	"time"
+)
 
 func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 
@@ -14,6 +18,10 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 
 	if int(bagIndex) >= len(s.rcvAmmoBag) {
 		return
+	}
+
+	if s.debug {
+		fmt.Printf("%d	receive to %s seq :%d \n", time.Now().UnixNano(), s.aim.String(), ammo.Id)
 	}
 
 	s.ack(ammo.Id)
@@ -97,8 +105,6 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 			} else {
 				blocks[j] = s.rcvAmmoBag[i].Body
 			}
-
-			i++
 		}
 
 		if empty > s.fecd.parShards {
