@@ -44,7 +44,7 @@ func Dial(addr string) (net.Conn, error) {
 	sn := NewSniper(conn, udpaddr)
 	sn.noLeader = true
 
-	c := make(chan error, 1)
+	c := make(chan error, 2)
 
 	go func() {
 
@@ -80,6 +80,7 @@ func Dial(addr string) (net.Conn, error) {
 
 		if ammo.Kind != protocol.SECONDHANDSHACK {
 			c <- errors.New("handshake package error")
+			return
 		}
 
 		c <- nil
