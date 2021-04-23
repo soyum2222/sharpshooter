@@ -1,7 +1,6 @@
 package sharpshooter
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"github.com/soyum2222/sharpshooter/protocol"
@@ -44,32 +43,16 @@ func Dial(addr string) (net.Conn, error) {
 	sn := NewSniper(conn, udpaddr)
 	sn.noLeader = true
 
-	c := make(chan error, 2)
+	c := make(chan error, 1)
 
 	go func() {
 
 		secondhand := make([]byte, 14)
 
-		ctx, _ := context.WithTimeout(context.Background(), time.Second*6)
-
-		select {
-
-		case <-func() chan struct{} {
-			ch := make(chan struct{})
-
-			go func() {
-				_, err = sn.conn.Read(secondhand)
-				if err != nil {
-					c <- err
-				}
-				close(ch)
-			}()
-
-			return ch
-		}():
-
-		case <-ctx.Done():
-			_ = conn.Close()
+		_, err = sn.conn.Read(secondhand)
+		if err != nil {
+			c <- err
+			return
 		}
 
 		ammo, err := protocol.Unmarshal(secondhand)
@@ -90,6 +73,7 @@ func Dial(addr string) (net.Conn, error) {
 loop:
 
 	if i > 6 {
+		_ = conn.Close()
 		_ = sn.Close()
 		return nil, errors.New("dial timeout")
 	}

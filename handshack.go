@@ -8,6 +8,11 @@ import (
 
 func firstHandShack(h *headquarters, remote net.Addr) {
 
+	_, ok := h.Snipers.Load(remote.String())
+	if ok {
+		return
+	}
+
 	sn := NewSniper(h.conn, remote.(*net.UDPAddr))
 
 	h.Snipers.Store(remote.String(), sn)
@@ -30,6 +35,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 			return
 		}
 
+		sn.status = STATUS_SECONDHANDSHACK
 		_, _ = sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 
 		select {
@@ -51,6 +57,13 @@ func secondHandShack(h *headquarters, remote net.Addr) {
 
 	sn := i.(*Sniper)
 
+	// verification status
+	//if sn.status != STATUS_FIRSTHANDSHACK {
+	//	return
+	//}
+
+	sn.status = STATUS_THIRDHANDSHACK
+
 	ammo := protocol.Ammo{
 		Id:   0,
 		Kind: protocol.THIRDHANDSHACK,
@@ -68,12 +81,17 @@ func thirdHandShack(h *headquarters, remote net.Addr) {
 
 	sn := i.(*Sniper)
 
+	//if sn.status != STATUS_SECONDHANDSHACK {
+	//	return
+	//}
+
+	sn.status = STATUS_NORMAL
+
 	SystemTimedSched.Put(sn.healthMonitor, time.Now().Add(time.Second*3))
 
 	select {
 	case sn.handShakeSign <- struct{}{}:
 	default:
-
 	}
 
 	h.accept <- sn

@@ -32,6 +32,15 @@ const (
 	DEFAULT_INIT_INTERVAL                      = 500
 )
 
+const (
+	STATUS_SECONDHANDSHACK = iota
+	STATUS_THIRDHANDSHACK
+	STATUS_NORMAL
+	STATUS_CLOSEING1
+	STATUS_CLOSEING2
+	STATUS_CLOSEING3
+)
+
 var (
 	CLOSEERROR         = errors.New("the connection is closed")
 	HEALTHTIMEOUTERROR = errors.New("health monitor timeout ")
@@ -52,6 +61,7 @@ type Sniper struct {
 	minSize        int32
 	healthTryCount int32
 	shootStatus    int32
+	status         int32
 	sendId         uint32
 	rcvId          uint32
 	sendWinId      uint32
