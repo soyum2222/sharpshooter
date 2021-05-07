@@ -255,7 +255,7 @@ func (s *Sniper) OpenStaTraffic() {
 	s.staSwitch = true
 }
 
-// use FEC algorithm in communication
+// OpenFec use FEC algorithm in communication
 // this will waste some of traffic ,  but when the packet is lost
 // there is a certain probability that the lost packet can be recovered
 func (s *Sniper) OpenFec(dataShards, parShards int) {
@@ -761,7 +761,7 @@ loop:
 	default:
 	}
 
-	remain := int64(s.winSize)*(s.packageSize)*2 - int64(len(s.sendCache))
+	remain := int64(s.winSize)*(s.packageSize) - int64(len(s.sendCache))
 
 	if remain <= 0 {
 		s.mu.Unlock()
