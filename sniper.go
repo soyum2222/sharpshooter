@@ -428,7 +428,7 @@ func (s *Sniper) shoot(put bool) {
 func (s *Sniper) flush() {
 
 	defer func() {
-		remain := int64(s.winSize)*(s.packageSize)*2 - int64(len(s.sendCache))
+		remain := (s.packageSize)*5 - int64(len(s.sendCache))
 		if remain > 0 {
 			_ = s.writerBlocker.Pass()
 		}
@@ -761,7 +761,7 @@ loop:
 	default:
 	}
 
-	remain := int64(s.winSize)*(s.packageSize) - int64(len(s.sendCache))
+	remain := (s.packageSize)*5 - int64(len(s.sendCache))
 
 	if remain <= 0 {
 		s.mu.Unlock()
@@ -790,6 +790,7 @@ loop:
 
 		return
 	}
+	s.wrap()
 
 	s.sendCache = append(s.sendCache, b[:remain]...)
 
