@@ -34,6 +34,7 @@ func dial() net.Conn {
 
 func TestDial(t *testing.T) {
 
+	go func() { http.ListenAndServe(":11233", nil) }()
 	group := sync.WaitGroup{}
 	group.Add(2)
 
@@ -145,7 +146,7 @@ func TestSniper_Close2(t *testing.T) {
 
 func TestSniper_ClientClose(t *testing.T) {
 
-	go func() {http.ListenAndServe(":9444",nil)}()
+	go func() { http.ListenAndServe(":9444", nil) }()
 	group := sync.WaitGroup{}
 	group.Add(2)
 

@@ -18,6 +18,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	conn.(*sharpshooter.Sniper).OpenFec(10, 3)
 
 	s := "ping"
 	lenght := make([]byte, 4)

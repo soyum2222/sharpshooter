@@ -41,6 +41,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 
 		if s.rcvAmmoBag[i] != nil {
 			s.rcvCache = append(s.rcvCache, s.rcvAmmoBag[i].Body...)
+			protocol.BytePool.Put(s.rcvAmmoBag[i].Body)
 			s.rcvId++
 			anchor++
 		} else {
@@ -49,7 +50,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 	}
 
 	// cut off
-	if anchor > len(s.rcvAmmoBag) {
+	if anchor >= len(s.rcvAmmoBag) {
 		s.rcvAmmoBag = s.rcvAmmoBag[:0]
 	} else {
 		s.rcvAmmoBag = s.rcvAmmoBag[anchor:]
@@ -99,11 +100,11 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 
 		for j := 0; j < s.fecd.dataShards+s.fecd.parShards && i < len(s.rcvAmmoBag); j++ {
 
-			if s.rcvAmmoBag[i] == nil {
+			if s.rcvAmmoBag[i+j] == nil {
 				blocks[j] = nil
 				empty++
 			} else {
-				blocks[j] = s.rcvAmmoBag[i].Body
+				blocks[j] = s.rcvAmmoBag[i+j].Body
 			}
 		}
 
@@ -119,6 +120,14 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 			s.rcvCache = append(s.rcvCache, data...)
 
 			s.rcvId += uint32(s.fecd.dataShards + s.fecd.parShards)
+
+			for i2 := 0; i2 < s.fecd.dataShards+s.fecd.parShards; i2++ {
+				if s.rcvAmmoBag[i2] != nil {
+					protocol.BytePool.Put(s.rcvAmmoBag[i2].Body)
+				}
+			}
+
+			i += (s.fecd.dataShards + s.fecd.parShards)
 
 		} else {
 			break

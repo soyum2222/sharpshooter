@@ -761,7 +761,7 @@ loop:
 	default:
 	}
 
-	remain := (s.packageSize)*5 - int64(len(s.sendCache))
+	remain := (s.packageSize) - int64(len(s.sendCache))
 
 	if remain <= 0 {
 		s.mu.Unlock()

@@ -13,7 +13,6 @@ func main() {
 
 	go http.ListenAndServe(":9999", nil)
 
-
 	h, err := sharpshooter.Listen(":8858")
 	if err != nil {
 		panic(err)
@@ -23,6 +22,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	sniper.(*sharpshooter.Sniper).OpenFec(10, 3)
 
 	s := "pong"
 
