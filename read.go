@@ -29,7 +29,7 @@ loop:
 	s.bemu.Lock()
 
 	n += copy(b, s.rcvCache)
-	s.rcvCache = s.rcvCache[n:]
+	s.rcvCache = removeByte(s.rcvCache, n)
 
 	s.bemu.Unlock()
 

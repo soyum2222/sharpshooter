@@ -145,6 +145,7 @@ func TestSniper_Close2(t *testing.T) {
 
 func TestSniper_ClientClose(t *testing.T) {
 
+	go func() {http.ListenAndServe(":9444",nil)}()
 	group := sync.WaitGroup{}
 	group.Add(2)
 

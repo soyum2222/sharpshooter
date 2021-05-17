@@ -877,3 +877,11 @@ loop:
 	s.isClose = true
 	return nil
 }
+
+func removeByte(q []byte, n int) []byte {
+	if n > cap(q)/2 {
+		newn := copy(q, q[n:])
+		return q[:newn]
+	}
+	return q[n:]
+}

@@ -45,7 +45,7 @@ loop:
 		return
 	}
 
-	s.sendCache = s.sendCache[anchor:]
+	s.sendCache = removeByte(s.sendCache, int(anchor))
 
 	for _, v := range shard {
 
@@ -83,9 +83,10 @@ func (s *Sniper) wrapnoml() {
 			anchor = s.packageSize
 		}
 
-		body := s.sendCache[:anchor]
+		body := make([]byte, anchor)
+		copy(body, s.sendCache[:anchor])
 
-		s.sendCache = s.sendCache[anchor:]
+		s.sendCache = removeByte(s.sendCache, int(anchor))
 
 		id := atomic.AddUint32(&s.sendId, 1)
 
