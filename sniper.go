@@ -44,8 +44,18 @@ const (
 var (
 	CLOSEERROR         = errors.New("the connection is closed")
 	HEALTHTIMEOUTERROR = errors.New("health monitor timeout ")
-	TIMEOUERROR        = errors.New("i/o timeout")
+	TIMEOUERROR        = timeout(0)
 )
+
+type timeout uint
+
+func (t timeout) Error() string {
+	return "i/o timeout"
+}
+
+func (t timeout) Timeout() bool {
+	return true
+}
 
 type Sniper struct {
 	Statistics
