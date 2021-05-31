@@ -3,7 +3,6 @@ package protocol
 import (
 	"encoding/binary"
 	"fmt"
-	"sync"
 	"sync/atomic"
 )
 
@@ -21,13 +20,13 @@ const (
 	OUTOFAMMO
 )
 
-var BytePool sync.Pool
-
-func init() {
-	BytePool.New = func() interface{} {
-		return make([]byte, 2048)
-	}
-}
+//var BytePool sync.Pool
+//
+//func init() {
+//	BytePool.New = func() interface{} {
+//		return make([]byte, 1800)
+//	}
+//}
 
 type Ammo struct {
 	Length   uint32
@@ -69,8 +68,10 @@ func Unmarshal(b []byte) (Ammo, error) {
 	msg.Kind = binary.BigEndian.Uint16(b[8:10])
 	msg.proof = binary.BigEndian.Uint32(b[10:14])
 
-	//msg.Body = make([]byte, 0, len(b[10:]))
-	msg.Body = BytePool.Get().([]byte)[:len(b[14:])]
+	if len(b[14:]) > 0 {
+		msg.Body = make([]byte, 0, len(b[14:]))
+	}
+	//msg.Body = BytePool.Get().([]byte)[:len(b[14:])]
 	copy(msg.Body, b[14:])
 
 	var count uint32
@@ -87,7 +88,8 @@ func Unmarshal(b []byte) (Ammo, error) {
 
 func Marshal(ammo Ammo) []byte {
 
-	b := BytePool.Get().([]byte)[:14+len(ammo.Body)]
+	//b := BytePool.Get().([]byte)[:14+len(ammo.Body)]
+	b := make([]byte, 14+len(ammo.Body))
 	binary.BigEndian.PutUint32(b[:4], uint32(len(ammo.Body)+10))
 	binary.BigEndian.PutUint32(b[4:8], ammo.Id)
 	binary.BigEndian.PutUint16(b[8:10], ammo.Kind)

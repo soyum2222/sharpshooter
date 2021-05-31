@@ -268,6 +268,7 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 		}
 
 		sn.handleAck(ids)
+		msg.Body = nil
 
 	case protocol.CLOSE:
 		// revive close signal after func Write can't write anything
