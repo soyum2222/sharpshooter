@@ -69,7 +69,7 @@ func Unmarshal(b []byte) (Ammo, error) {
 	msg.proof = binary.BigEndian.Uint32(b[10:14])
 
 	if len(b[14:]) > 0 {
-		msg.Body = make([]byte, 0, len(b[14:]))
+		msg.Body = make([]byte, len(b[14:]))
 	}
 	//msg.Body = BytePool.Get().([]byte)[:len(b[14:])]
 	copy(msg.Body, b[14:])

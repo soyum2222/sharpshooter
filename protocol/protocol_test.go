@@ -17,12 +17,10 @@ func compAmmo(a1, a2 Ammo) bool {
 
 	for i := 0; i < len(a1.Body); i++ {
 
-		for j := i; j < len(a2.Body); j++ {
-			if a1.Body[i] != a2.Body[j] {
-				return false
-			}
-			continue
+		if a1.Body[i] != a2.Body[i] {
+			return false
 		}
+		continue
 	}
 
 	return true
@@ -30,10 +28,15 @@ func compAmmo(a1, a2 Ammo) bool {
 
 func TestMarshalUnmarshal(t *testing.T) {
 	ammo := Ammo{
-		Length: 10,
+		Length: 20,
 		Id:     1,
 		Kind:   1,
-		Body:   make([]byte, 0),
+		proof:  15,
+		Body:   make([]byte, 10),
+	}
+
+	for i, _ := range ammo.Body {
+		ammo.Body[i] = byte(i)
 	}
 
 	ab := Marshal(ammo)
@@ -47,6 +50,13 @@ func TestMarshalUnmarshal(t *testing.T) {
 	if !compAmmo(ammo, newAmmo) {
 		t.Fail()
 		return
+	}
+
+	for i := 0; i < len(ammo.Body); i++ {
+		if newAmmo.Body[i] != ammo.Body[i] {
+			t.Fail()
+			return
+		}
 	}
 
 	b := make([]byte, 0)
