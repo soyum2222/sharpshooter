@@ -88,7 +88,6 @@ func Unmarshal(b []byte) (Ammo, error) {
 
 func Marshal(ammo Ammo) []byte {
 
-	//b := BytePool.Get().([]byte)[:14+len(ammo.Body)]
 	b := make([]byte, 14+len(ammo.Body))
 	binary.BigEndian.PutUint32(b[:4], uint32(len(ammo.Body)+10))
 	binary.BigEndian.PutUint32(b[4:8], ammo.Id)

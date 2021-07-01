@@ -15,7 +15,7 @@ loop:
 		return
 	}
 
-	l := len(s.sendCache)
+	l := len(s.sendBuffer)
 
 	if l == 0 {
 		return
@@ -30,7 +30,7 @@ loop:
 		anchor = int64(s.fece.dataShards) * s.packageSize
 	}
 
-	body := s.sendCache[:anchor]
+	body := s.sendBuffer[:anchor]
 
 	// body will be copied
 	shard, err := s.fece.encode(body)
@@ -45,7 +45,7 @@ loop:
 		return
 	}
 
-	s.sendCache = removeByte(s.sendCache, int(anchor))
+	s.sendBuffer = removeByte(s.sendBuffer, int(anchor))
 
 	for _, v := range shard {
 
@@ -68,7 +68,7 @@ func (s *Sniper) wrapnoml() {
 
 	for i := 0; i < int(remain); i++ {
 
-		l := len(s.sendCache)
+		l := len(s.sendBuffer)
 
 		if l == 0 {
 			return
@@ -83,17 +83,12 @@ func (s *Sniper) wrapnoml() {
 			anchor = s.packageSize
 		}
 
-		body := make([]byte, anchor)
-		copy(body, s.sendCache[:anchor])
-
-		s.sendCache = removeByte(s.sendCache, int(anchor))
-
 		id := atomic.AddUint32(&s.sendId, 1)
 
 		ammo := protocol.Ammo{
 			Id:   id - 1,
 			Kind: protocol.NORMAL,
-			Body: body,
+			Body: s.sendBuffer[:anchor],
 		}
 
 		s.addEffectivePacket(1)

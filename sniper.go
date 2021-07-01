@@ -82,8 +82,8 @@ type Sniper struct {
 	staSwitch bool // statistics switch
 	debug     bool
 
-	sendCache []byte
-	writer    func(p []byte) (n int, err error)
+	sendBuffer []byte
+	writer     func(p []byte) (n int, err error)
 
 	//dead line
 	readDeadline  time.Time
@@ -182,7 +182,7 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 		writerBlocker: block.NewBlocker(),
 		closeChan:     make(chan struct{}, 0),
 		errorSign:     make(chan struct{}),
-		sendCache:     make([]byte, 0),
+		sendBuffer:    make([]byte, 0),
 		interval:      DEFAULT_INIT_INTERVAL,
 		minSize:       64,
 	}
@@ -438,7 +438,7 @@ func (s *Sniper) shoot(put bool) {
 func (s *Sniper) flush() {
 
 	defer func() {
-		remain := (s.packageSize)*5 - int64(len(s.sendCache))
+		remain := (s.packageSize)*5 - int64(len(s.sendBuffer))
 		if remain > 0 {
 			_ = s.writerBlocker.Pass()
 		}
@@ -771,7 +771,8 @@ loop:
 	default:
 	}
 
-	remain := (s.packageSize) - int64(len(s.sendCache))
+	// remain capacity of send buffer
+	remain := (s.packageSize) - int64(len(s.sendBuffer))
 
 	if remain <= 0 {
 		s.mu.Unlock()
@@ -786,7 +787,7 @@ loop:
 		// if appending sendCache don't have enough cap , will malloc a new memory
 		// old memory will be GC
 		// if the slice cap too small , then malloc new memory often happen , this will affect performance
-		s.sendCache = append(s.sendCache, b...)
+		s.sendBuffer = append(s.sendBuffer, b...)
 
 		if len(s.ammoBag) == 0 {
 			s.mu.Unlock()
@@ -802,7 +803,7 @@ loop:
 	}
 	s.wrap()
 
-	s.sendCache = append(s.sendCache, b[:remain]...)
+	s.sendBuffer = append(s.sendBuffer, b[:remain]...)
 
 	b = b[remain:]
 
@@ -850,7 +851,7 @@ loop:
 
 	s.mu.Lock()
 	// if ammoBag not clear , should delay try again
-	if (len(s.ammoBag) == 0 && len(s.sendCache) == 0) || try > 0xff {
+	if (len(s.ammoBag) == 0 && len(s.sendBuffer) == 0) || try > 0xff {
 		s.mu.Unlock()
 
 		s.ammoBag = append(s.ammoBag, &protocol.Ammo{
