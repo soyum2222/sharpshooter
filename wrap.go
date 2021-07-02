@@ -90,6 +90,7 @@ func (s *Sniper) wrapnoml() {
 			Kind: protocol.NORMAL,
 			Body: s.sendBuffer[:anchor],
 		}
+		s.sendBuffer = s.sendBuffer[anchor:]
 
 		s.addEffectivePacket(1)
 		s.ammoBag = append(s.ammoBag, &ammo)
