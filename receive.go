@@ -40,9 +40,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 	for i := 0; i < len(s.rcvAmmoBag); i++ {
 
 		if s.rcvAmmoBag[i] != nil {
-			s.rcvCache = append(s.rcvCache, s.rcvAmmoBag[i].Body...)
-			//protocol.BytePool.Put(s.rcvAmmoBag[i].Body)
-			s.rcvAmmoBag[i].Body = nil
+			s.rcvBuffer = append(s.rcvBuffer, s.rcvAmmoBag[i].Body)
 			s.rcvId++
 			anchor++
 		} else {
@@ -122,7 +120,7 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 
 			anchor += s.fecd.dataShards + s.fecd.parShards
 
-			s.rcvCache = append(s.rcvCache, data...)
+			s.rcvBuffer = append(s.rcvBuffer, data)
 
 			s.rcvId += uint32(s.fecd.dataShards + s.fecd.parShards)
 

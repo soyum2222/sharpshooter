@@ -32,6 +32,31 @@ func dial() net.Conn {
 	return conn
 }
 
+func TestCopyRcvBuffer(t *testing.T) {
+
+	s := new(Sniper)
+
+	slice := [][]byte{
+		[]byte{1, 2, 3},
+		[]byte{1, 2, 3},
+		[]byte{1, 2, 3},
+	}
+	s.rcvBuffer = slice
+
+	b := make([]byte, 6)
+
+	s.copyRcvBuffer(b)
+
+	if len(s.rcvBuffer) != 1 {
+		t.Fail()
+	}
+
+	if !(b[0] == 1 && b[1] == 2 && b[2] == 3 && b[3] == 1 && b[4] == 2 && b[5] == 3) {
+		t.Fail()
+	}
+
+}
+
 func TestDial(t *testing.T) {
 
 	go func() { http.ListenAndServe(":11233", nil) }()

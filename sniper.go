@@ -95,7 +95,7 @@ type Sniper struct {
 
 	ammoBag       []*protocol.Ammo
 	rcvAmmoBag    []*protocol.Ammo
-	rcvCache      []byte
+	rcvBuffer     [][]byte
 	readBlock     chan struct{}
 	handShakeSign chan struct{}
 	writerBlocker *block.Blocker
@@ -887,6 +887,38 @@ loop:
 
 	s.isClose = true
 	return nil
+}
+
+func (s *Sniper) copyRcvBuffer(b []byte) int {
+
+	s.bemu.Lock()
+	defer s.bemu.Unlock()
+
+	if len(s.rcvBuffer) == 0 {
+		return 0
+	}
+
+	var total int
+	var catIndedx int
+
+	blen := len(b)
+	for k := range s.rcvBuffer {
+		n := copy(b, s.rcvBuffer[k])
+		total += n
+
+		if n < len(s.rcvBuffer[k]) {
+			s.rcvBuffer[k] = s.rcvBuffer[k][n:]
+		} else if n == len(s.rcvBuffer[k]) {
+			catIndedx++
+		}
+		if total == blen {
+			break
+		}
+		b = b[total:]
+	}
+
+	s.rcvBuffer = s.rcvBuffer[catIndedx:]
+	return total
 }
 
 func removeByte(q []byte, n int) []byte {

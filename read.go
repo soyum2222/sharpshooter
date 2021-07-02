@@ -26,12 +26,7 @@ loop:
 		return 0, TIMEOUERROR
 	}
 
-	s.bemu.Lock()
-
-	n += copy(b, s.rcvCache)
-	s.rcvCache = removeByte(s.rcvCache, n)
-
-	s.bemu.Unlock()
+	n += s.copyRcvBuffer(b)
 
 	if n <= 0 {
 
