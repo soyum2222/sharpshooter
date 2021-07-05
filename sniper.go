@@ -438,7 +438,7 @@ func (s *Sniper) shoot(put bool) {
 func (s *Sniper) flush() {
 
 	defer func() {
-		remain := (s.packageSize)*5 - int64(len(s.sendBuffer))
+		remain := (s.packageSize) - int64(len(s.sendBuffer))
 		if remain > 0 {
 			_ = s.writerBlocker.Pass()
 		}
