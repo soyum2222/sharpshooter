@@ -53,7 +53,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 		s.rcvAmmoBag = s.rcvAmmoBag[:0]
 	} else {
 		copy(s.rcvAmmoBag, s.rcvAmmoBag[anchor:])
-		s.rcvAmmoBag = s.rcvAmmoBag[:anchor]
+		s.rcvAmmoBag = s.rcvAmmoBag[:anchor+1]
 	}
 
 	if s.isClose {
