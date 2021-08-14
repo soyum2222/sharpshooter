@@ -52,12 +52,8 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 	if anchor >= len(s.rcvAmmoBag) {
 		s.rcvAmmoBag = s.rcvAmmoBag[:0]
 	} else {
-		length := len(s.rcvAmmoBag)
-		newrcv := make([]*protocol.Ammo, length)
-		s.rcvAmmoBag = s.rcvAmmoBag[anchor:]
-
-		copy(newrcv, s.rcvAmmoBag)
-		s.rcvAmmoBag = newrcv
+		copy(s.rcvAmmoBag, s.rcvAmmoBag[anchor:])
+		s.rcvAmmoBag = s.rcvAmmoBag[:anchor]
 	}
 
 	if s.isClose {
