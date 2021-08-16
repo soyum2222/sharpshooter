@@ -23,6 +23,7 @@ var i string
 
 var c bool
 var t bool
+var debug bool
 
 func main() {
 	flag.IntVar(&l, "l", 0, "listen port")
@@ -31,6 +32,7 @@ func main() {
 	flag.StringVar(&addr, "addr", "", "remote ip addr IP:PORT")
 	flag.StringVar(&i, "i", "", "input file path")
 	flag.BoolVar(&t, "t", false, "use tcp")
+	flag.BoolVar(&debug, "debug", false, "open debug")
 	flag.Parse()
 
 	log.SetFlags(log.Lshortfile)
@@ -49,6 +51,13 @@ func main() {
 			if err != nil {
 				log.Println(err)
 				os.Exit(1)
+			}
+
+			if debug {
+				sniper, ok := conn.(*sharpshooter.Sniper)
+				if ok {
+					sniper.Debug()
+				}
 			}
 		}
 
@@ -72,6 +81,13 @@ func main() {
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
+		}
+	
+		if debug {
+			sniper, ok := conn.(*sharpshooter.Sniper)
+			if ok {
+				sniper.Debug()
+			}
 		}
 	}
 

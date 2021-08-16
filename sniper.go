@@ -45,6 +45,7 @@ var (
 	CLOSEERROR         = errors.New("the connection is closed")
 	HEALTHTIMEOUTERROR = errors.New("health monitor timeout ")
 	TIMEOUERROR        = timeout(0)
+	RCVAMMOBAGEMPTY    = make([]*protocol.Ammo, DEFAULT_INIT_RECEWIND)
 )
 
 type timeout uint
@@ -248,6 +249,9 @@ func (s *Sniper) SetRecWin(size int64) {
 	s.bemu.Lock()
 	defer s.bemu.Unlock()
 	s.rcvAmmoBag = make([]*protocol.Ammo, size)
+	if size > int64(len(RCVAMMOBAGEMPTY)) {
+		s.rcvAmmoBag = make([]*protocol.Ammo, size)
+	}
 }
 
 func (s *Sniper) SetSendWin(size int32) {
@@ -772,7 +776,7 @@ loop:
 	}
 
 	// remain capacity of send buffer
-	remain := (s.packageSize) - int64(len(s.sendBuffer))
+	remain := int64(s.winSize)*(s.packageSize) - int64(len(s.sendBuffer))
 
 	if remain <= 0 {
 		s.mu.Unlock()

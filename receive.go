@@ -21,7 +21,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 	}
 
 	if s.debug {
-		fmt.Printf("%d	receive to %s seq :%d \n", time.Now().UnixNano(), s.aim.String(), ammo.Id)
+		fmt.Printf("%d	receive to %s seq :%d rcvId:%d \n", time.Now().UnixNano(), s.aim.String(), ammo.Id, s.rcvId)
 	}
 
 	s.ack(ammo.Id)
@@ -50,10 +50,10 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 
 	// cut off
 	if anchor >= len(s.rcvAmmoBag) {
-		s.rcvAmmoBag = s.rcvAmmoBag[:0]
+		copy(s.rcvAmmoBag, RCVAMMOBAGEMPTY)
 	} else {
 		copy(s.rcvAmmoBag, s.rcvAmmoBag[anchor:])
-		s.rcvAmmoBag = s.rcvAmmoBag[:anchor+1]
+		copy(s.rcvAmmoBag[len(s.rcvAmmoBag)-anchor:], RCVAMMOBAGEMPTY)
 	}
 
 	if s.isClose {
