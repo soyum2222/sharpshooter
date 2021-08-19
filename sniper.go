@@ -693,6 +693,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 	ids = unWrapACK(ids)
 	var exp bool
+
 	for _, id := range ids {
 
 		if id < atomic.LoadUint32(&s.sendWinId) {
@@ -704,7 +705,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 			rtt := now.UnixNano() - s.rttTimeFlag
 
 			if s.debug {
-				fmt.Printf("rtt :%d  \n", rtt)
+				fmt.Printf("rtt :%d  rttflag %d\n", rtt, s.rttTimeFlag)
 			}
 			// collect
 			if rtt/s.rtt < 5 {
@@ -733,7 +734,28 @@ func (s *Sniper) handleAck(ids []uint32) {
 				}
 			}
 		}
+	}
 
+	for i := 0; i < int(ids[len(ids)-1])-int(atomic.LoadUint32(&s.sendWinId)); i++ {
+		if s.ammoBag[i] != nil {
+			b := protocol.Marshal(*s.ammoBag[i])
+
+			if s.debug {
+				fmt.Printf("%d	send to %s , seq:%d \n", now.UnixNano(), s.aim.String(), s.ammoBag[i].Id)
+			}
+			_, err := s.conn.WriteToUDP(b, s.aim)
+			if err != nil {
+				select {
+				case <-s.errorSign:
+				default:
+					s.errorContainer.Store(errors.New(err.Error()))
+					s.chanCloser.closeChan(s.errorSign)
+				}
+			}
+
+			s.addTotalTraffic(len(b))
+			s.addTotalPacket(1)
+		}
 	}
 
 	s.mu.Unlock()
