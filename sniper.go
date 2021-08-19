@@ -125,6 +125,8 @@ type Sniper struct {
 	// close lock
 	clock sync.Mutex
 
+	ammoPool sync.Pool
+
 	chanCloser chanCloser
 }
 
@@ -193,6 +195,14 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 	sn.wrap = sn.wrapnoml
 
 	sn.writer = sn.delaySend
+
+	sn.ammoPool.New = func() interface{} {
+		ammo := &protocol.Ammo{
+			Body: make([]byte, sn.packageSize),
+		}
+		ammo.Body = ammo.Body[:0]
+		return ammo
+	}
 	return sn
 }
 
@@ -243,6 +253,14 @@ func (s *Sniper) SetPackageSize(size int64) {
 		size = 512
 	}
 	s.packageSize = size
+
+	s.ammoPool.New = func() interface{} {
+		ammo := &protocol.Ammo{
+			Body: make([]byte, s.packageSize),
+		}
+		ammo.Body = ammo.Body[:0]
+		return ammo
+	}
 }
 
 func (s *Sniper) SetRecWin(size int64) {
@@ -700,7 +718,11 @@ func (s *Sniper) handleAck(ids []uint32) {
 			continue
 		}
 
-		s.ammoBag[index] = nil
+		if s.ammoBag[index] != nil {
+			s.ammoBag[index].Body = s.ammoBag[index].Body[:0]
+			s.ammoPool.Put(s.ammoBag[index])
+			s.ammoBag[index] = nil
+		}
 
 		if id == s.sendId-1 {
 			exp = true
@@ -763,6 +785,8 @@ func (s *Sniper) delaySend(b []byte) (n int, err error) {
 	s.mu.Lock()
 loop:
 
+	ammoLen := len(s.ammoBag)
+
 	select {
 	case <-s.errorSign:
 		s.mu.Unlock()
@@ -775,8 +799,7 @@ loop:
 	default:
 	}
 
-	// remain capacity of send buffer
-	remain := int64(s.winSize)*(s.packageSize) - int64(len(s.sendBuffer))
+	remain := s.winSize - int32(len(s.ammoBag))
 
 	if remain <= 0 {
 		s.mu.Unlock()
@@ -785,31 +808,49 @@ loop:
 		goto loop
 	}
 
-	// len(b) is new n
-	if remain >= int64(len(b)) {
-
-		// if appending sendCache don't have enough cap , will malloc a new memory
-		// old memory will be GC
-		// if the slice cap too small , then malloc new memory often happen , this will affect performance
-		s.sendBuffer = append(s.sendBuffer, b...)
-
-		if len(s.ammoBag) == 0 {
-			s.mu.Unlock()
-			if s.debug {
-				fmt.Printf("ammobag lenght is 0 , shoot now! \n")
-			}
-			s.shoot(false)
+	if len(s.sendBuffer) != 0 {
+		r := s.packageSize - int64(len(s.sendBuffer))
+		if r > int64(len(b)) {
+			s.sendBuffer = append(s.sendBuffer, b...)
+			b = b[:0]
 		} else {
+			s.sendBuffer = append(s.sendBuffer, b[:r]...)
+			b = b[r:]
+			s.wrap()
+		}
+	}
+
+	for i := 0; i < int(remain); i++ {
+
+		if len(b) == 0 {
 			s.mu.Unlock()
+			if ammoLen == 0 {
+				if s.debug {
+					fmt.Printf("ammobag lenght is 0 , shoot now! \n")
+				}
+				s.shoot(false)
+			}
+
+			return n, nil
 		}
 
-		return
+		if int64(len(b)) >= s.packageSize {
+
+			id := atomic.AddUint32(&s.sendId, 1)
+			ammo := s.ammoPool.Get().(*protocol.Ammo)
+			ammo.Id = id - 1
+			ammo.Kind = protocol.NORMAL
+			ammo.Body = append(ammo.Body, b[:s.packageSize]...)
+			b = b[s.packageSize:]
+
+			s.addEffectivePacket(1)
+			s.ammoBag = append(s.ammoBag, ammo)
+		} else {
+			s.sendBuffer = append(s.sendBuffer, b...)
+			s.mu.Unlock()
+			return n, nil
+		}
 	}
-	s.wrap()
-
-	s.sendBuffer = append(s.sendBuffer, b[:remain]...)
-
-	b = b[remain:]
 
 	goto loop
 }

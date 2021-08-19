@@ -85,14 +85,15 @@ func (s *Sniper) wrapnoml() {
 
 		id := atomic.AddUint32(&s.sendId, 1)
 
-		ammo := protocol.Ammo{
-			Id:   id - 1,
-			Kind: protocol.NORMAL,
-			Body: s.sendBuffer[:anchor],
-		}
-		s.sendBuffer = s.sendBuffer[anchor:]
+		ammo := s.ammoPool.Get().(*protocol.Ammo)
+		ammo.Id = id - 1
+		ammo.Kind = protocol.NORMAL
+		ammo.Body = append(ammo.Body, s.sendBuffer[:anchor]...)
+		ammo.Body = ammo.Body[:anchor]
+
+		s.sendBuffer = removeByte(s.sendBuffer, int(anchor))
 
 		s.addEffectivePacket(1)
-		s.ammoBag = append(s.ammoBag, &ammo)
+		s.ammoBag = append(s.ammoBag, ammo)
 	}
 }
