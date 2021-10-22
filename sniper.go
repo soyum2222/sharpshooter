@@ -742,7 +742,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 	}
 
 	for i := 0; i < int(ids[len(ids)-1])-int(atomic.LoadUint32(&s.sendWinId)); i++ {
-		if s.ammoBag[i] != nil {
+		if i < len(s.ammoBag) && s.ammoBag[i] != nil {
 			b := protocol.Marshal(*s.ammoBag[i])
 
 			if s.debug {
