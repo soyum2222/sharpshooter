@@ -74,6 +74,7 @@ type Sniper struct {
 	shootStatus    int32
 	status         int32
 	sendId         uint32
+	latestSendId   uint32
 	rcvId          uint32
 	sendWinId      uint32
 	rttSampId      uint32
@@ -392,27 +393,30 @@ func (s *Sniper) shoot(put bool) {
 
 		s.flush()
 
+		if put && s.timeAnchor != 0 {
+
+			//packet loss tolerance
+			var c int
+			for _, ammo := range s.ammoBag {
+				if ammo != nil && int(ammo.Id)-int(s.latestSendId) > 0 {
+					break
+				}
+				if ammo != nil {
+					c++
+				}
+			}
+
+			if float64(c)/float64(s.winSize) > 0.80 {
+				s.zoomoutWin()
+			}
+		}
+
 		s.wrap()
 
 		if len(s.ammoBag) == 0 {
 			s.mu.Unlock()
 			s.timeAnchor = 0
 			return
-		}
-
-		if put && s.timeAnchor != 0 {
-
-			// packet loss tolerance
-			var c int
-			for _, ammo := range s.ammoBag {
-				if ammo != nil {
-					c++
-				}
-			}
-
-			if float64(c)/float64(len(s.ammoBag)) > 0.60 {
-				s.zoomoutWin()
-			}
 		}
 
 		for k := range s.ammoBag {
@@ -446,6 +450,7 @@ func (s *Sniper) shoot(put bool) {
 				}
 			}
 
+			s.latestSendId = s.ammoBag[k].Id
 			s.addTotalTraffic(len(b))
 			s.addTotalPacket(1)
 		}
@@ -453,7 +458,6 @@ func (s *Sniper) shoot(put bool) {
 		s.timeAnchor = now.UnixNano()
 		s.mu.Unlock()
 	}
-
 }
 
 // remove already sent packages
@@ -500,6 +504,7 @@ func (s *Sniper) ack(id uint32) {
 	s.ackLock.Lock()
 
 	for i := 0; i < len(s.ackCache); i++ {
+		// repeat id
 		if s.ackCache[i] == id {
 			s.ackLock.Unlock()
 			return
@@ -530,7 +535,7 @@ func (s *Sniper) ackTimer() {
 	}
 
 	interval := time.Duration(
-		math.Min(float64(s.rtt/2),
+		math.Min(float64(s.rtt/4),
 			float64(30*time.Millisecond)),
 	) * time.Nanosecond
 
@@ -725,7 +730,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 			s.ammoBag[index] = nil
 		}
 
-		if id == s.sendId-1 {
+		if id == s.latestSendId {
 			exp = true
 			for i := range s.ammoBag {
 				if s.ammoBag[i] != nil {
@@ -774,12 +779,18 @@ func (s *Sniper) zoomoutWin() {
 	s.winSize = int32(float64(s.winSize) / 1.25)
 	if s.winSize < s.minSize {
 		s.winSize = s.minSize
+		if s.debug {
+			fmt.Printf("winSize zoomout %d \n", s.winSize)
+		}
 	}
 }
 
 func (s *Sniper) expandWin() {
 	if s.winSize < 1<<15 {
 		s.winSize = int32(float64(s.winSize) * 1.25)
+		if s.debug {
+			fmt.Printf("winSize expand %d \n", s.winSize)
+		}
 	}
 }
 
