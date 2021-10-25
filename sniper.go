@@ -503,14 +503,6 @@ func (s *Sniper) ack(id uint32) {
 
 	s.ackLock.Lock()
 
-	for i := 0; i < len(s.ackCache); i++ {
-		// repeat id
-		if s.ackCache[i] == id {
-			s.ackLock.Unlock()
-			return
-		}
-	}
-
 	s.ackCache = append(s.ackCache, id)
 
 	s.ackLock.Unlock()
