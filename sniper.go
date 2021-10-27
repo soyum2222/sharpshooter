@@ -684,7 +684,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 	now := time.Now()
 	if s.debug {
-		fmt.Printf("%d	ack receive to %s ,ack seqs:%v \n", now.UnixNano(), s.aim.String(), ids)
+		fmt.Printf("%d	ack receive to %s ,ack seqs:%v latest id %d\n", now.UnixNano(), s.aim.String(), ids, s.latestSendId)
 	}
 	s.mu.Lock()
 
@@ -702,7 +702,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 			rtt := now.UnixNano() - s.rttTimeFlag
 
 			if s.debug {
-				fmt.Printf("rtt :%d  rttflag %d\n", rtt, s.rttTimeFlag)
+				fmt.Printf("rtt :%d  rttflag %d origin %d \n", rtt, s.rttTimeFlag, s.rtt)
 			}
 			// collect
 			if rtt/s.rtt < 5 {
@@ -725,6 +725,9 @@ func (s *Sniper) handleAck(ids []uint32) {
 		if id == s.latestSendId {
 			exp = true
 			for i := range s.ammoBag {
+				if s.ammoBag[i] != nil && s.ammoBag[i].Id > s.latestSendId {
+					break
+				}
 				if s.ammoBag[i] != nil {
 					exp = false
 					break

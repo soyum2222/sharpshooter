@@ -1,9 +1,5 @@
 package sharpshooter
 
-import (
-	"time"
-)
-
 func (s *Sniper) calrto(rtt int64) {
 
 	//RFC6298
@@ -28,9 +24,9 @@ func (s *Sniper) calrto(rtt int64) {
 	s.rtt = int64((0.3)*float64(rtt)) + int64((0.7)*float64(s.rtt))
 	s.rto = int64(float64(s.rtt) * 1.5)
 
-	if s.rtt < int64(time.Millisecond*10) {
-		s.rtt = int64(time.Millisecond * 10)
-	}
+	//if s.rtt < int64(time.Millisecond*10) {
+	//	s.rtt = int64(time.Millisecond * 10)
+	//}
 
 	//fmt.Printf("rtt %d s.rtt %d \n", rtt, s.rtt)
 }
