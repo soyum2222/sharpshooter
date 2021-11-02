@@ -598,3 +598,18 @@ func Test_CreateLargeConnection(t *testing.T) {
 
 	group.Wait()
 }
+
+func TestUnWrapACK(t *testing.T) {
+
+	ids := unWrapACK([]uint32{
+		1070584, 1070584, 1070834, 1070835, 1070835, 1071085, 1071086, 1071086, 1071336, 1071337, 1071337, 1071390})
+
+	tag := uint32(1070584)
+	for _, v := range ids {
+		if tag != v {
+			t.Fail()
+			return
+		}
+		tag++
+	}
+}

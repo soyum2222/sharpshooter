@@ -2,10 +2,14 @@ package sharpshooter
 
 import (
 	"github.com/soyum2222/sharpshooter/protocol"
+	"math/rand"
 	"net"
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().Unix())
+}
 func firstHandShack(h *headquarters, remote net.Addr) {
 
 	_, ok := h.Snipers.Load(remote.String())
@@ -15,10 +19,17 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 
 	sn := NewSniper(h.conn, remote.(*net.UDPAddr))
 
+	// verification status
+	// avoid malicious packages
+	if sn.status != STATUS_NONE {
+		return
+	}
+
 	h.Snipers.Store(remote.String(), sn)
 
+	sn.latestSendId = rand.Uint32()
 	ammo := protocol.Ammo{
-		Id:   0,
+		Id:   sn.latestSendId,
 		Kind: protocol.SECONDHANDSHACK,
 		Body: nil,
 	}
@@ -49,7 +60,7 @@ func firstHandShack(h *headquarters, remote net.Addr) {
 	}()
 }
 
-func secondHandShack(h *headquarters, remote net.Addr) {
+func secondHandShack(h *headquarters, remote net.Addr, id uint32) {
 	i, ok := h.Snipers.Load(remote.String())
 	if !ok {
 		return
@@ -58,14 +69,15 @@ func secondHandShack(h *headquarters, remote net.Addr) {
 	sn := i.(*Sniper)
 
 	// verification status
-	//if sn.status != STATUS_FIRSTHANDSHACK {
-	//	return
-	//}
+	// avoid malicious packages
+	if sn.status != STATUS_NONE {
+		return
+	}
 
 	sn.status = STATUS_THIRDHANDSHACK
 
 	ammo := protocol.Ammo{
-		Id:   0,
+		Id:   id,
 		Kind: protocol.THIRDHANDSHACK,
 		Body: nil,
 	}
@@ -73,7 +85,7 @@ func secondHandShack(h *headquarters, remote net.Addr) {
 	_, _ = sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 }
 
-func thirdHandShack(h *headquarters, remote net.Addr) {
+func thirdHandShack(h *headquarters, remote net.Addr, id uint32) {
 	i, ok := h.Snipers.Load(remote.String())
 	if !ok {
 		return
@@ -81,6 +93,18 @@ func thirdHandShack(h *headquarters, remote net.Addr) {
 
 	sn := i.(*Sniper)
 
+	// verification status
+	// avoid malicious packages
+	if sn.status != STATUS_SECONDHANDSHACK {
+		return
+	}
+
+	if id != sn.latestSendId {
+		h.Snipers.Delete(remote.String())
+		return
+	}
+
+	sn.latestSendId = 0
 	//if sn.status != STATUS_SECONDHANDSHACK {
 	//	return
 	//}
