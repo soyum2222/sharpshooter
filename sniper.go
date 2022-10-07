@@ -977,7 +977,7 @@ func (s *Sniper) copyRcvBuffer(b []byte) int {
 	}
 
 	var total int
-	var catIndedx int
+	var catIndex int
 
 	nb := b
 
@@ -989,7 +989,7 @@ func (s *Sniper) copyRcvBuffer(b []byte) int {
 		if n < len(s.rcvBuffer[k]) {
 			s.rcvBuffer[k] = s.rcvBuffer[k][n:]
 		} else if n == len(s.rcvBuffer[k]) {
-			catIndedx++
+			catIndex++
 		}
 		if total == blen {
 			break
@@ -997,7 +997,7 @@ func (s *Sniper) copyRcvBuffer(b []byte) int {
 		nb = b[total:]
 	}
 
-	s.rcvBuffer = s.rcvBuffer[catIndedx:]
+	s.rcvBuffer = s.rcvBuffer[catIndex:]
 	return total
 }
 
