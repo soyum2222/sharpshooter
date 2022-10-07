@@ -45,6 +45,8 @@ func Dial(addr string) (net.Conn, error) {
 
 	c := make(chan error, 1)
 
+	var id uint32
+
 	go func() {
 
 		secondhand := make([]byte, 14)
@@ -66,6 +68,7 @@ func Dial(addr string) (net.Conn, error) {
 			return
 		}
 
+		id = ammo.Id
 		c <- nil
 	}()
 
@@ -99,6 +102,7 @@ loop:
 	}
 
 	ammo.Kind = protocol.THIRDHANDSHACK
+	ammo.Id = id
 
 	_, err = sn.conn.WriteToUDP(protocol.Marshal(ammo), sn.aim)
 	if err != nil {
@@ -229,10 +233,10 @@ func (h *headquarters) monitor() {
 				firstHandShack(h, remote)
 
 			case protocol.SECONDHANDSHACK:
-				secondHandShack(h, remote)
+				secondHandShack(h, remote, msg.Id)
 
 			case protocol.THIRDHANDSHACK:
-				thirdHandShack(h, remote)
+				thirdHandShack(h, remote, msg.Id)
 
 			default:
 				sn, ok := h.Snipers.Load(remote.String())
