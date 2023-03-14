@@ -134,7 +134,7 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 	}
 
 	// cut off
-	if anchor > len(s.rcvAmmoBag) {
+	if anchor >= len(s.rcvAmmoBag) {
 		s.rcvAmmoBag = s.rcvAmmoBag[:0]
 	} else {
 		length := len(s.rcvAmmoBag)

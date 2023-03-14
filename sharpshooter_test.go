@@ -21,6 +21,8 @@ func server() (net.Conn, net.Listener) {
 	if err != nil {
 		panic(err)
 	}
+
+	conn.(*Sniper).OpenFec(4, 3)
 	return conn, listen
 }
 
@@ -29,6 +31,8 @@ func dial() net.Conn {
 	if err != nil {
 		panic(err)
 	}
+
+	conn.(*Sniper).OpenFec(4, 3)
 	return conn
 }
 

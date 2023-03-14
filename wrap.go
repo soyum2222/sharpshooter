@@ -89,7 +89,6 @@ func (s *Sniper) wrapnoml() {
 		ammo.Id = id - 1
 		ammo.Kind = protocol.NORMAL
 		ammo.Body = append(ammo.Body, s.sendBuffer[:anchor]...)
-		ammo.Body = ammo.Body[:anchor]
 
 		s.sendBuffer = removeByte(s.sendBuffer, int(anchor))
 

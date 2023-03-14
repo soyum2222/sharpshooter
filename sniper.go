@@ -88,7 +88,7 @@ type Sniper struct {
 	sendBuffer []byte
 	writer     func(p []byte) (n int, err error)
 
-	//dead line
+	//deadline
 	readDeadline  time.Time
 	deadline      time.Time
 	writeDeadline time.Time
@@ -290,7 +290,7 @@ func (s *Sniper) OpenStaTraffic() {
 }
 
 // OpenFec use FEC algorithm in communication
-// this will waste some of traffic ,  but when the packet is lost
+// this will waste some traffic ,  but when the packet is lost
 // there is a certain probability that the lost packet can be recovered
 func (s *Sniper) OpenFec(dataShards, parShards int) {
 	s.fecd = newFecDecoder(dataShards, parShards)
