@@ -94,5 +94,6 @@ func (s *Sniper) wrapnoml() {
 
 		s.addEffectivePacket(1)
 		s.ammoBag = append(s.ammoBag, ammo)
+		s.fire(ammo)
 	}
 }

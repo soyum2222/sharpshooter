@@ -29,12 +29,13 @@ const (
 //}
 
 type Ammo struct {
-	Length   uint32
-	Id       uint32
-	Kind     uint16
-	proof    uint32
-	Body     []byte
-	ackCount uint32
+	Length     uint32
+	Id         uint32
+	Kind       uint16
+	proof      uint32
+	Body       []byte
+	ackCount   uint32
+	shootCount uint32
 }
 
 var table = []uint8{0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5, 1,
@@ -49,6 +50,24 @@ var emptyAmmo Ammo
 
 func (a *Ammo) AckAdd() uint32 {
 	return atomic.AddUint32(&a.ackCount, 1)
+}
+
+func (a *Ammo) ShootAdd() uint32 {
+	return atomic.AddUint32(&a.shootCount, 1)
+}
+
+func (a *Ammo) ShootCount() uint32 {
+	return atomic.LoadUint32(&a.shootCount)
+}
+
+func (a *Ammo) Free() {
+	a.Id = 0
+	a.Length = 0
+	a.Kind = 0
+	a.proof = 0
+	a.ackCount = 0
+	a.shootCount = 0
+	a.Body = a.Body[:0]
 }
 
 func Unmarshal(b []byte) (Ammo, error) {

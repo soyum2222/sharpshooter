@@ -23,7 +23,7 @@ const (
 	DEFAULT_HEAD_SIZE                          = 20
 	DEFAULT_INIT_SENDWIND                      = 64
 	DEFAULT_INIT_RECEWIND                      = 1 << 10
-	DEFAULT_INIT_PACKSIZE                      = 1000
+	DEFAULT_INIT_PACKSIZE                      = 800
 	DEFAULT_INIT_HEALTHTICKER                  = 1
 	DEFAULT_INIT_HEALTHCHECK_TIMEOUT_TRY_COUNT = 10
 	DEFAULT_INIT_HANDSHACK_TIMEOUT             = 6
@@ -66,19 +66,20 @@ type Sniper struct {
 	rto         int64
 	rttTimeFlag int64
 
-	interval   int64
-	timeAnchor int64
+	interval  int64
+	shootTime int64
 
-	winSize        int32
-	minSize        int32
-	healthTryCount int32
-	shootStatus    int32
-	status         int32
-	sendId         uint32
-	latestSendId   uint32
-	rcvId          uint32
-	sendWinId      uint32
-	rttSampId      uint32
+	winSize              int32
+	minSize              int32
+	healthTryCount       int32
+	shootStatus          int32
+	status               int32
+	sendId               uint32
+	latestSendId         uint32
+	rttCycleRecordAmmoID uint32
+	rcvId                uint32
+	sendWinId            uint32
+	rttSampId            uint32
 
 	isClose   bool
 	noLeader  bool // it not has headquarters
@@ -351,21 +352,54 @@ func (s *Sniper) autoShoot() {
 	s.shoot(true)
 }
 
+func (s *Sniper) fire(ammo *protocol.Ammo) {
+
+	b := protocol.Marshal(*ammo)
+
+	_, err := s.conn.WriteToUDP(b, s.aim)
+	if err != nil {
+		select {
+		case <-s.errorSign:
+		default:
+			s.errorContainer.Store(errors.New(err.Error()))
+			s.chanCloser.closeChan(s.errorSign)
+		}
+	}
+
+	now := time.Now()
+
+	if s.rttSampId == 0 && ammo.ShootCount() == 0 {
+		// samp
+		s.rttSampId = ammo.Id
+		s.rttTimeFlag = now.UnixNano()
+	}
+
+	ammo.ShootAdd()
+
+	s.latestSendId = ammo.Id
+	s.shootTime = now.UnixNano()
+	s.addTotalTraffic(len(b))
+	s.addTotalPacket(1)
+}
+
 // send to remote
 func (s *Sniper) shoot(put bool) {
 
 	now := time.Now()
-	if put {
-		rto := atomic.LoadInt64(&s.rto)
-		// maybe overflow
-		if rto <= 0 {
-			rto = int64(250 * time.Millisecond)
-		}
 
-		interval := time.Duration(
-			math.Min(float64(rto),
-				float64(time.Duration(s.interval)*time.Millisecond)),
-		) * time.Nanosecond
+	rto := atomic.LoadInt64(&s.rto)
+	// maybe overflow
+	if rto <= 0 {
+		rto = int64(250 * time.Millisecond)
+	}
+
+	interval := time.Duration(
+		math.Min(float64(s.rto),
+			float64(time.Duration(s.interval)*time.Millisecond)),
+	) * time.Nanosecond
+
+	if put {
+
 		if s.debug {
 			fmt.Printf("interval :%d  \n", interval)
 		}
@@ -374,9 +408,9 @@ func (s *Sniper) shoot(put bool) {
 		SystemTimedSched.Put(s.autoShoot, shootTime)
 
 		// avoid sending data repeatedly
-		if now.UnixNano()-s.timeAnchor < int64(interval) && s.timeAnchor != 0 {
-			return
-		}
+		//if now.UnixNano()-s.timeAnchor < int64(interval) && s.timeAnchor != 0 {
+		//	return
+		//}
 	}
 
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
@@ -394,29 +428,48 @@ func (s *Sniper) shoot(put bool) {
 
 		s.flush()
 
-		if put && s.timeAnchor != 0 {
+		lastAmmoID := atomic.LoadUint32(&s.sendId)
+
+		if put && s.shootTime != 0 {
+
+			// number of ammo shoot in one cycle
+			cSize := lastAmmoID - s.rttCycleRecordAmmoID
 
 			//packet loss tolerance
 			var c int
 			for _, ammo := range s.ammoBag {
-				if ammo != nil && int(ammo.Id)-int(s.latestSendId) > 0 {
-					break
-				}
 				if ammo != nil {
-					c++
+					c += int(ammo.ShootCount()) - 1
 				}
 			}
 
-			if float64(c)/float64(s.winSize) > 0.80 {
+			if float64(c)/float64(s.winSize) > 0.50 {
 				s.zoomoutWin()
+			} else if float64(int32(cSize))/float64(s.winSize) > 0.9 {
+				s.expandWin()
 			}
+
+			//fmt.Println("interval ", interval)
+			//fmt.Printf("winSize expend ratio %f \n", float64(int32(cSize))/float64(s.winSize))
+			//fmt.Printf("winSize zoomout ratio %f \n", float64(c)/float64(s.winSize))
+			//fmt.Printf("winSize  %d \n", s.winSize)
+			//fmt.Printf("winSize rtt cycle size %d \n", cSize)
+			//fmt.Printf("WinSize loss pack count %d \n", c)
+
+		}
+
+		s.rttCycleRecordAmmoID = lastAmmoID
+
+		if now.UnixNano()-s.shootTime < int64(interval) {
+			s.mu.Unlock()
+			return
 		}
 
 		s.wrap()
 
 		if len(s.ammoBag) == 0 {
 			s.mu.Unlock()
-			s.timeAnchor = 0
+			s.shootTime = 0
 			return
 		}
 
@@ -429,34 +482,11 @@ func (s *Sniper) shoot(put bool) {
 			if k > int(s.winSize) {
 				break
 			}
-			id := s.ammoBag[k].Id
-			if id%uint32(s.winSize) == 0 && s.rttSampId < id {
-				// samp
-				s.rttSampId = s.ammoBag[k].Id
-				s.rttTimeFlag = now.UnixNano()
-			}
 
-			b := protocol.Marshal(*s.ammoBag[k])
-
-			if s.debug {
-				fmt.Printf("%d	send to %s , seq:%d \n", now.UnixNano(), s.aim.String(), s.ammoBag[k].Id)
-			}
-			_, err := s.conn.WriteToUDP(b, s.aim)
-			if err != nil {
-				select {
-				case <-s.errorSign:
-				default:
-					s.errorContainer.Store(errors.New(err.Error()))
-					s.chanCloser.closeChan(s.errorSign)
-				}
-			}
-
-			s.latestSendId = s.ammoBag[k].Id
-			s.addTotalTraffic(len(b))
-			s.addTotalPacket(1)
+			s.fire(s.ammoBag[k])
 		}
 
-		s.timeAnchor = now.UnixNano()
+		s.shootTime = time.Now().UnixNano()
 		s.mu.Unlock()
 	}
 }
@@ -718,7 +748,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 		}
 
 		if s.ammoBag[index] != nil {
-			s.ammoBag[index].Body = s.ammoBag[index].Body[:0]
+			s.ammoBag[index].Free()
 			s.ammoPool.Put(s.ammoBag[index])
 			s.ammoBag[index] = nil
 		}
@@ -759,13 +789,19 @@ func (s *Sniper) handleAck(ids []uint32) {
 		}
 	}
 
+	s.flush()
+
 	s.mu.Unlock()
 	if exp {
-		s.expandWin()
-		if s.debug {
-			fmt.Printf("all message verified, shoot now! \n")
-		}
-		s.shoot(false)
+		//s.expandWin()
+		//if s.debug {
+		//	fmt.Printf("all message verified, shoot now! \n")
+		//}
+		//fmt.Println("all message verified, shoot now!")
+
+		//s.shoot(false)
+
+		//s.timeAnchor = 0
 	}
 
 	return
@@ -812,6 +848,8 @@ func (s *Sniper) delaySend(b []byte) (n int, err error) {
 	n = len(b)
 	s.addEffectTraffic(n)
 	s.mu.Lock()
+
+	s.flush()
 loop:
 
 	ammoLen := len(s.ammoBag)
@@ -837,6 +875,7 @@ loop:
 		goto loop
 	}
 
+	// try to keep every ammo full
 	if len(s.sendBuffer) != 0 {
 		r := s.packageSize - int64(len(s.sendBuffer))
 		if r > int64(len(b)) {
@@ -854,10 +893,10 @@ loop:
 		if len(b) == 0 {
 			s.mu.Unlock()
 			if ammoLen == 0 {
-				if s.debug {
-					fmt.Printf("ammobag lenght is 0 , shoot now! \n")
-				}
-				s.shoot(false)
+				//if s.debug {
+				//	fmt.Printf("ammobag lenght is 0 , shoot now! \n")
+				//}
+				//s.shoot(false)
 			}
 
 			return n, nil
@@ -874,6 +913,9 @@ loop:
 
 			s.addEffectivePacket(1)
 			s.ammoBag = append(s.ammoBag, ammo)
+
+			s.fire(ammo)
+
 		} else {
 			s.sendBuffer = append(s.sendBuffer, b...)
 			s.mu.Unlock()

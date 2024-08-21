@@ -2,6 +2,7 @@ package sharpshooter
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -22,7 +23,7 @@ func server() (net.Conn, net.Listener) {
 		panic(err)
 	}
 
-	conn.(*Sniper).OpenFec(4, 3)
+	//conn.(*Sniper).OpenFec(4, 3)
 	return conn, listen
 }
 
@@ -32,7 +33,7 @@ func dial() net.Conn {
 		panic(err)
 	}
 
-	conn.(*Sniper).OpenFec(4, 3)
+	//conn.(*Sniper).OpenFec(4, 3)
 	return conn
 }
 
@@ -555,14 +556,16 @@ func Test_CreateLargeConnection(t *testing.T) {
 			panic(err)
 		}
 
+		defer listen.Close()
+
 		for i := 0; i < 1<<10; i++ {
 			conn, err := listen.Accept()
+			if err != nil {
+				panic(err)
+			}
+
 			go func() {
 				b := make([]byte, 10)
-				if err != nil {
-					panic(err)
-				}
-
 				defer conn.Close()
 
 				n, err := conn.Read(b)
@@ -616,4 +619,70 @@ func TestUnWrapACK(t *testing.T) {
 		}
 		tag++
 	}
+}
+
+func TestSendBigData(t *testing.T) {
+
+	go func() { http.ListenAndServe(":11233", nil) }()
+
+	group := sync.WaitGroup{}
+	group.Add(2)
+
+	synchronization := make(chan struct{}, 1)
+
+	syncEnd := make(chan struct{}, 1) // sync end
+
+	server := func() {
+		defer group.Done()
+
+		synchronization <- struct{}{}
+		conn, listen := server()
+		fmt.Println("accept")
+		defer func() { _ = listen.Close() }()
+		defer func() { _ = conn.Close() }()
+
+		b := make([]byte, 1<<30)
+		_, err := io.ReadFull(conn, b)
+		if err != nil {
+			panic(err)
+			return
+		}
+
+		for i := range b {
+			if b[i] != byte(i) {
+				t.Fail()
+				return
+			}
+		}
+
+		syncEnd <- struct{}{}
+	}
+
+	dial := func() {
+		defer group.Done()
+
+		<-synchronization
+		conn := dial()
+		fmt.Println("dial")
+		defer func() { _ = conn.Close() }()
+
+		b := make([]byte, 1<<30)
+
+		for i := 0; i < (1 << 30); i++ {
+			b[i] = byte(i)
+		}
+
+		_, err := conn.Write(b)
+		if err != nil {
+			panic(err)
+			return
+		}
+
+		<-syncEnd
+	}
+
+	go server()
+	go dial()
+
+	group.Wait()
 }
