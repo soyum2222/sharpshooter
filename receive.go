@@ -97,6 +97,10 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 		blocks := make([][]byte, s.fecd.dataShards+s.fecd.parShards)
 		var empty int
 
+		if i+s.fecd.dataShards > len(s.rcvAmmoBag) {
+			break
+		}
+
 		for j := 0; j < s.fecd.dataShards+s.fecd.parShards && i < len(s.rcvAmmoBag); j++ {
 
 			if s.rcvAmmoBag[i+j] == nil {

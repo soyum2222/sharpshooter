@@ -14,6 +14,11 @@ type fecEncoder struct {
 	enc        reedsolomon.Encoder
 }
 
+func (e *fecEncoder) estimatedLength(length int) int {
+	length += 4
+	return length*e.dataShards + e.parShards
+}
+
 func (e *fecEncoder) encode(b []byte) ([][]byte, error) {
 
 	l := len(b)
@@ -80,11 +85,11 @@ func (d *fecDecoder) decode(b [][]byte) ([]byte, error) {
 		return nil, errors.New("bad bytes")
 	}
 
-	lenght := binary.BigEndian.Uint32(b[0][:4])
+	length := binary.BigEndian.Uint32(b[0][:4])
 
 	b[0] = b[0][4:]
 
-	err = d.dec.Join(buff, b, int(lenght))
+	err = d.dec.Join(buff, b, int(length))
 	if err != nil {
 		return nil, err
 	}

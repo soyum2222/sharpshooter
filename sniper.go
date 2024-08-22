@@ -209,6 +209,10 @@ func NewSniper(conn *net.UDPConn, aim *net.UDPAddr) *Sniper {
 	return sn
 }
 
+func (s *Sniper) makeAmmo() *protocol.Ammo {
+	return s.ammoPool.Get().(*protocol.Ammo)
+}
+
 func (s *Sniper) addTotalTraffic(flow int) {
 	if s.staSwitch {
 		s.TotalTraffic += int64(flow)
@@ -298,6 +302,7 @@ func (s *Sniper) OpenFec(dataShards, parShards int) {
 	s.fece = newFecEncoder(dataShards, parShards)
 	s.wrap = s.wrapfec
 	s.rcv = s.rcvfec
+	s.writer = s.fecSend
 }
 
 func (s *Sniper) healthMonitor() {
@@ -905,7 +910,7 @@ loop:
 		if int64(len(b)) >= s.packageSize {
 
 			id := atomic.AddUint32(&s.sendId, 1)
-			ammo := s.ammoPool.Get().(*protocol.Ammo)
+			ammo := s.makeAmmo()
 			ammo.Id = id - 1
 			ammo.Kind = protocol.NORMAL
 			ammo.Body = append(ammo.Body, b[:s.packageSize]...)
@@ -921,6 +926,42 @@ loop:
 			s.mu.Unlock()
 			return n, nil
 		}
+	}
+
+	goto loop
+}
+
+func (s *Sniper) fecSend(b []byte) (n int, err error) {
+
+	n = len(b)
+	s.addEffectTraffic(n)
+	s.mu.Lock()
+
+	s.flush()
+
+loop:
+	remain := int(s.winSize)*int(s.packageSize) - s.fece.estimatedLength(len(s.sendBuffer))
+
+	if remain <= 0 {
+		s.mu.Unlock()
+		_ = s.writerBlocker.Block()
+		s.mu.Lock()
+		goto loop
+	}
+
+	if remain > len(b) {
+		s.sendBuffer = append(s.sendBuffer, b...)
+		b = b[:0]
+	} else {
+		s.sendBuffer = append(s.sendBuffer, b[:remain]...)
+		b = b[remain:]
+	}
+
+	s.wrap()
+
+	if len(b) == 0 {
+		s.mu.Unlock()
+		return n, nil
 	}
 
 	goto loop

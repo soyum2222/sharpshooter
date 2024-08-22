@@ -24,10 +24,10 @@ loop:
 	// anchor is mark sendCache current op index
 	var anchor int64
 
-	if int64(l) < int64(s.fece.dataShards)*s.packageSize {
+	if int64(l) < int64(s.fece.dataShards)*s.packageSize-4 {
 		anchor = int64(l)
 	} else {
-		anchor = int64(s.fece.dataShards) * s.packageSize
+		anchor = int64(s.fece.dataShards)*s.packageSize - 4
 	}
 
 	body := s.sendBuffer[:anchor]
@@ -49,14 +49,15 @@ loop:
 
 	for _, v := range shard {
 
-		ammo := protocol.Ammo{
-			Id:   atomic.AddUint32(&s.sendId, 1) - 1,
-			Kind: protocol.NORMAL,
-			Body: v,
-		}
+		ammo := s.makeAmmo()
+		ammo.Id = atomic.AddUint32(&s.sendId, 1) - 1
+		ammo.Kind = protocol.NORMAL
+		ammo.Body = v
 
 		s.addEffectivePacket(1)
-		s.ammoBag = append(s.ammoBag, &ammo)
+		s.ammoBag = append(s.ammoBag, ammo)
+
+		s.fire(ammo)
 	}
 
 	goto loop

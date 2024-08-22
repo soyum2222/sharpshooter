@@ -23,7 +23,7 @@ func server() (net.Conn, net.Listener) {
 		panic(err)
 	}
 
-	//conn.(*Sniper).OpenFec(4, 3)
+	conn.(*Sniper).OpenFec(4, 3)
 	return conn, listen
 }
 
@@ -33,7 +33,7 @@ func dial() net.Conn {
 		panic(err)
 	}
 
-	//conn.(*Sniper).OpenFec(4, 3)
+	conn.(*Sniper).OpenFec(4, 3)
 	return conn
 }
 
@@ -558,6 +558,8 @@ func Test_CreateLargeConnection(t *testing.T) {
 
 		defer listen.Close()
 
+		wg := sync.WaitGroup{}
+
 		for i := 0; i < 1<<10; i++ {
 			conn, err := listen.Accept()
 			if err != nil {
@@ -565,6 +567,8 @@ func Test_CreateLargeConnection(t *testing.T) {
 			}
 
 			go func() {
+				wg.Add(1)
+				defer wg.Done()
 				b := make([]byte, 10)
 				defer conn.Close()
 
@@ -574,9 +578,9 @@ func Test_CreateLargeConnection(t *testing.T) {
 					panic(err)
 				}
 				fmt.Println(string(b[:n]))
-
 			}()
 		}
+		wg.Wait()
 	}
 
 	dial := func() {
@@ -641,17 +645,20 @@ func TestSendBigData(t *testing.T) {
 		defer func() { _ = listen.Close() }()
 		defer func() { _ = conn.Close() }()
 
-		b := make([]byte, 1<<30)
-		_, err := io.ReadFull(conn, b)
-		if err != nil {
-			panic(err)
-			return
-		}
+		for i := 0; i < 1<<10; i++ {
 
-		for i := range b {
-			if b[i] != byte(i) {
-				t.Fail()
+			b := make([]byte, 1<<20)
+			_, err := io.ReadFull(conn, b)
+			if err != nil {
+				panic(err)
 				return
+			}
+
+			for j := range b {
+				if b[j] != byte(j) {
+					t.Fail()
+					return
+				}
 			}
 		}
 
@@ -666,16 +673,24 @@ func TestSendBigData(t *testing.T) {
 		fmt.Println("dial")
 		defer func() { _ = conn.Close() }()
 
-		b := make([]byte, 1<<30)
+		var total int
+		for i := 0; i < 1<<10; i++ {
 
-		for i := 0; i < (1 << 30); i++ {
-			b[i] = byte(i)
-		}
+			b := make([]byte, 1<<20)
 
-		_, err := conn.Write(b)
-		if err != nil {
-			panic(err)
-			return
+			for j := 0; j < (1 << 20); j++ {
+				b[j] = byte(j)
+			}
+
+			n, err := conn.Write(b)
+			if err != nil {
+				panic(err)
+				return
+			}
+
+			total += n
+
+			fmt.Printf("\rsend %d Mbit	", total/1000000)
 		}
 
 		<-syncEnd
