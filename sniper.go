@@ -411,11 +411,6 @@ func (s *Sniper) shoot(put bool) {
 		shootTime := now.Add(interval)
 
 		SystemTimedSched.Put(s.autoShoot, shootTime)
-
-		// avoid sending data repeatedly
-		//if now.UnixNano()-s.timeAnchor < int64(interval) && s.timeAnchor != 0 {
-		//	return
-		//}
 	}
 
 	if atomic.CompareAndSwapInt32(&s.shootStatus, 0, shooting) {
@@ -453,14 +448,6 @@ func (s *Sniper) shoot(put bool) {
 			} else if float64(int32(cSize))/float64(s.winSize) > 0.9 {
 				s.expandWin()
 			}
-
-			//fmt.Println("interval ", interval)
-			//fmt.Printf("winSize expend ratio %f \n", float64(int32(cSize))/float64(s.winSize))
-			//fmt.Printf("winSize zoomout ratio %f \n", float64(c)/float64(s.winSize))
-			//fmt.Printf("winSize  %d \n", s.winSize)
-			//fmt.Printf("winSize rtt cycle size %d \n", cSize)
-			//fmt.Printf("WinSize loss pack count %d \n", c)
-
 		}
 
 		s.rttCycleRecordAmmoID = lastAmmoID
@@ -725,7 +712,6 @@ func (s *Sniper) handleAck(ids []uint32) {
 	s.mu.Lock()
 
 	ids = unWrapACK(ids)
-	var exp bool
 
 	for _, id := range ids {
 
@@ -757,19 +743,6 @@ func (s *Sniper) handleAck(ids []uint32) {
 			s.ammoPool.Put(s.ammoBag[index])
 			s.ammoBag[index] = nil
 		}
-
-		if id == s.latestSendId {
-			exp = true
-			for i := range s.ammoBag {
-				if s.ammoBag[i] != nil && s.ammoBag[i].Id > s.latestSendId {
-					break
-				}
-				if s.ammoBag[i] != nil {
-					exp = false
-					break
-				}
-			}
-		}
 	}
 
 	for i := 0; i < int(ids[len(ids)-1])-int(atomic.LoadUint32(&s.sendWinId)); i++ {
@@ -797,17 +770,6 @@ func (s *Sniper) handleAck(ids []uint32) {
 	s.flush()
 
 	s.mu.Unlock()
-	if exp {
-		//s.expandWin()
-		//if s.debug {
-		//	fmt.Printf("all message verified, shoot now! \n")
-		//}
-		//fmt.Println("all message verified, shoot now!")
-
-		//s.shoot(false)
-
-		//s.timeAnchor = 0
-	}
 
 	return
 }
