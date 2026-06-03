@@ -1,85 +1,105 @@
+<h1 align="center">Sharpshooter</h1>
 
-## Sharpshooter
+<p align="center">
+  <b>Reliable UDP transport protocol for Go</b>
+</p>
 
+<p align="center">
+  <img src="https://img.shields.io/github/license/soyum2222/sharpshooter?logo=Github&style=flat-square" />
+  <img src="https://img.shields.io/github/go-mod/go-version/soyum2222/sharpshooter?logo=Go&style=flat-square" />
+  <img src="https://img.shields.io/github/v/tag/soyum2222/sharpshooter?label=version&style=flat-square" />
+  <img src="https://img.shields.io/github/commit-activity/m/soyum2222/sharpshooter?logo=Github&style=flat-square" />
+</p>
 
-![GitHub](https://img.shields.io/github/license/soyum2222/sharpshooter?logo=Github&style=plastic)  ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/soyum2222/sharpshooter?logo=Github) <img src="https://visits.myyou.top/soyum2222/sharpshooter/visitor" />
- 
+<p align="center">
+  <a href="Readme_zh.md">中文文档</a>
+</p>
 
+---
 
-Sharpshooter is a reliability network protocol using UDP.
-    
-It is a connection-oriented protocol just like TCP.
-    
-It doesn't have packet characteristics,You can try it to bypassing some protocol characteristics detection,and base for P2P application transport protocol.
-    
-About instructions , you can see example dir, I provided tow simple example.
-    
-If want TCP to sharpshooter convert , can try https://github.com/soyum2222/sharpshooter-tunel .
-    
-    
+Sharpshooter is a reliable transport protocol built on UDP, implemented in Go. It provides TCP-like connection-oriented semantics without TCP's protocol fingerprint, making it suitable for bypassing protocol-based traffic detection and serving as a transport layer for P2P applications.
 
-## Specification
+**Features:**
 
-`| SIZE(4byte) | SQE(4byte) | CMD(2byte) | CONTENT(.......) |`
+- TCP-like 3-way handshake
+- ACK-based retransmission
+- Adaptive sliding window congestion control
+- Optional FEC (Forward Error Correction) via Reed-Solomon
+- RTT/RTO auto-calibration
+- Health check & timeout detection
+- Implements `net.Conn` interface
+- Zero external dependencies besides Reed-Solomon
 
+---
 
-    SIZE:
-        contain SQE CMD CONTENT byte size . but not contain itself byte size .
-        
-    SQE
-        sequence number, continuous data package, SQE is continuous.
-        
-    CMD
-        0:ack
-        1:NORMAL
-        2:first handshack
-        3:second handshack(response first handshack)
-        4:third handshack
-        5:close connction(FIN)
-        6:response close
-        7:health check
-        8:response health 
-           
-    ACK package
-        
-    | SIZE(4byte) | SQE(4byte) | CMD(2byte) | ackSQE1(4byte)| ackSQE2(4byte) | ackSQE3(4byte) | ... |
-        
-    The package max length can't over DEFAULT_INIT_PACKSIZE or Sniper.packageSize      
-    
-    When receive ack like :
-    
-        | SIZE(4byte) | SQE(4byte) | CMD(2byte) | ackSQE1(4byte)| ackSQE2(4byte) | ackSQE3(4byte) |
-        
-    if ackSQE1 == ackSQE2 and ackSQE1 < ackSQE3 this situation means ackSQE1 to ackSQE3 is continuous number .
-    
-    eg:  receive data : |0|0|0|1|1|10| , this means other party sent ack 1 to 10.
+## Quick Start
 
-## Use
+```bash
+go get github.com/soyum2222/sharpshooter
+```
 
-#### Ping pong
+### Server
 
-[ping.go](https://github.com/soyum2222/sharpshooter/blob/master/example/ping.go)
+```go
+l, _ := sharpshooter.Listen(":8858")
+conn, _ := l.Accept()
+// conn implements net.Conn — use Read/Write directly
+```
 
-[pong.go](https://github.com/soyum2222/sharpshooter/blob/master/example/pong.go)
+### Client
 
-    
-#### File transfer
+```go
+conn, _ := sharpshooter.Dial("127.0.0.1:8858")
+// Enable FEC (optional)
+conn.(*sharpshooter.Sniper).OpenFec(10, 3)
+conn.Write([]byte("hello"))
+```
 
-[send_file.go](https://github.com/soyum2222/sharpshooter/blob/master/example/send_file.go)
+More examples in the [`example/`](https://github.com/soyum2222/sharpshooter/tree/master/example) directory.
 
-[receive_file.go](https://github.com/soyum2222/sharpshooter/blob/master/example/send_file.go)
+---
 
+## API
 
+| Method | Description |
+|--------|-------------|
+| `Dial(addr) (net.Conn, error)` | Connect to a remote listener |
+| `Listen(addr) (*headquarters, error)` | Start a UDP listener |
+| `Accept() (net.Conn, error)` | Accept a new connection |
+| `OpenFec(data, par)` | Enable FEC (e.g. `OpenFec(10, 3)` tolerates 30% loss) |
+| `SetPackageSize(size)` | Set packet payload size |
+| `SetSendWin(size)` / `SetRecWin(size)` | Set send/receive window |
+| `OpenStaTraffic()` | Enable traffic statistics |
+| `TrafficStatistics()` | Get traffic stats snapshot |
 
-## Network utilization
+All standard `net.Conn` methods (`Read`, `Write`, `Close`, `SetDeadline`, etc.) are supported.
 
-try transfer 100M file
+For protocol specification and detailed documentation, see [`docs/`](docs/).
 
-![speed](https://github.com/soyum2222/sharpshooter/blob/master/image/network.png)
+---
 
+## File Transfer Tool
 
-![utilization](https://github.com/soyum2222/sharpshooter/blob/master/image/network-utilization.png)
+```bash
+# Server (receive)
+go run example/sharp_transfer.go -l 8858 -o output.dat
 
-utilization depends on network status and send window size
+# Client (send)
+go run example/sharp_transfer.go -addr 127.0.0.1:8858 -i input.dat
 
-    
+# Resume transfer
+go run example/sharp_transfer.go -addr 127.0.0.1:8858 -i input.dat -o output.dat -c
+
+# Compare with TCP
+go run example/sharp_transfer.go -addr 127.0.0.1:8858 -i input.dat -t
+```
+
+---
+
+## Related
+
+- [sharpshooter-tunel](https://github.com/soyum2222/sharpshooter-tunel) — TCP ↔ Sharpshooter bridge
+
+## License
+
+[MIT](LICENSE)
