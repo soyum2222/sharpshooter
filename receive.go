@@ -3,6 +3,7 @@ package sharpshooter
 import (
 	"fmt"
 	"github.com/soyum2222/sharpshooter/protocol"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,7 +57,7 @@ func (s *Sniper) rcvnoml(ammo *protocol.Ammo) {
 		copy(s.rcvAmmoBag[len(s.rcvAmmoBag)-anchor:], RCVAMMOBAGEMPTY)
 	}
 
-	if s.isClose {
+	if atomic.LoadInt32(&s.isClose) == closed {
 		return
 	}
 
@@ -149,7 +150,7 @@ func (s *Sniper) rcvfec(ammo *protocol.Ammo) {
 		s.rcvAmmoBag = newrcv
 	}
 
-	if s.isClose {
+	if atomic.LoadInt32(&s.isClose) == closed {
 		return
 	}
 

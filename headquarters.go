@@ -190,7 +190,7 @@ func (h *headquarters) clear() {
 		default:
 
 			h.Snipers.Range(func(key, value interface{}) bool {
-				if value.(*Sniper).isClose {
+				if atomic.LoadInt32(&value.(*Sniper).isClose) == closed {
 					h.Snipers.Delete(key)
 				}
 				return true
@@ -302,12 +302,12 @@ func routing(sn *Sniper, msg protocol.Ammo) {
 
 					sn.writerBlocker.Close()
 
-					if sn.isClose {
+					if atomic.LoadInt32(&sn.isClose) == closed {
 						sn.bemu.Unlock()
 						return
 					}
 
-					sn.isClose = true
+					atomic.StoreInt32(&sn.isClose, closed)
 
 					sn.chanCloser.closeChan(sn.closeChan)
 

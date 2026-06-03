@@ -15,6 +15,8 @@ import (
 )
 
 const (
+	closed = 1
+
 	shooting = 1 << iota
 	waittimeout
 )
@@ -81,9 +83,9 @@ type Sniper struct {
 	sendWinId            uint32
 	rttSampId            uint32
 
-	isClose   bool
+	isClose   int32
 	noLeader  bool // it not has headquarters
-	staSwitch bool // statistics switch
+	staSwitch int32 // statistics switch
 	debug     bool
 
 	sendBuffer []byte
@@ -214,42 +216,47 @@ func (s *Sniper) makeAmmo() *protocol.Ammo {
 }
 
 func (s *Sniper) addTotalTraffic(flow int) {
-	if s.staSwitch {
-		s.TotalTraffic += int64(flow)
+	if atomic.LoadInt32(&s.staSwitch) == closed {
+		atomic.AddInt64(&s.TotalTraffic, int64(flow))
 	}
 }
 
 func (s *Sniper) addTotalPacket(n int) {
-	if s.staSwitch {
-		s.TotalPacket += int64(n)
+	if atomic.LoadInt32(&s.staSwitch) == closed {
+		atomic.AddInt64(&s.TotalPacket, int64(n))
 	}
 }
 
 func (s *Sniper) addEffectivePacket(n int) {
-	if s.staSwitch {
-		s.EffectivePacket += int64(n)
+	if atomic.LoadInt32(&s.staSwitch) == closed {
+		atomic.AddInt64(&s.EffectivePacket, int64(n))
 	}
 }
 
 func (s *Sniper) CleanStatistics() {
-	s.EffectivePacket = 0
-	s.EffectiveTraffic = 0
-	s.TotalPacket = 0
-	s.TotalTraffic = 0
+	atomic.StoreInt64(&s.EffectivePacket, 0)
+	atomic.StoreInt64(&s.EffectiveTraffic, 0)
+	atomic.StoreInt64(&s.TotalPacket, 0)
+	atomic.StoreInt64(&s.TotalTraffic, 0)
 }
 
 func (s *Sniper) addEffectTraffic(flow int) {
-	if s.staSwitch {
-		s.EffectiveTraffic += int64(flow)
+	if atomic.LoadInt32(&s.staSwitch) == closed {
+		atomic.AddInt64(&s.EffectiveTraffic, int64(flow))
 	}
 }
 
 func (s *Sniper) TrafficStatistics() Statistics {
-	s.RTO = s.rto
-	s.RTT = s.rtt
-	s.SendWin = int64(s.winSize)
-	s.ReceiveWin = int64(len(s.rcvAmmoBag))
-	return s.Statistics
+	return Statistics{
+		RTO:              atomic.LoadInt64(&s.RTO),
+		RTT:              atomic.LoadInt64(&s.RTT),
+		SendWin:          int64(atomic.LoadInt32(&s.winSize)),
+		ReceiveWin:       atomic.LoadInt64(&s.ReceiveWin),
+		TotalTraffic:     atomic.LoadInt64(&s.TotalTraffic),
+		EffectiveTraffic: atomic.LoadInt64(&s.EffectiveTraffic),
+		TotalPacket:      atomic.LoadInt64(&s.TotalPacket),
+		EffectivePacket:  atomic.LoadInt64(&s.EffectivePacket),
+	}
 }
 
 func (s *Sniper) SetPackageSize(size int64) {
@@ -291,7 +298,7 @@ func (s *Sniper) SetInterval(interval int64) {
 }
 
 func (s *Sniper) OpenStaTraffic() {
-	s.staSwitch = true
+	atomic.StoreInt32(&s.staSwitch, closed)
 }
 
 // OpenFec use FEC algorithm in communication
@@ -328,7 +335,7 @@ func (s *Sniper) healthMonitor() {
 			// timeout
 			s.clock.Lock()
 			defer s.clock.Unlock()
-			if s.isClose {
+			if atomic.LoadInt32(&s.isClose) == closed {
 				return
 			}
 
@@ -341,7 +348,7 @@ func (s *Sniper) healthMonitor() {
 				_ = s.conn.Close()
 			}
 
-			s.isClose = true
+			atomic.StoreInt32(&s.isClose, closed)
 			s.chanCloser.closeChan(s.closeChan)
 			s.chanCloser.closeChan(s.readBlock)
 			return
@@ -747,23 +754,7 @@ func (s *Sniper) handleAck(ids []uint32) {
 
 	for i := 0; i < int(ids[len(ids)-1])-int(atomic.LoadUint32(&s.sendWinId)); i++ {
 		if i < len(s.ammoBag) && s.ammoBag[i] != nil {
-			b := protocol.Marshal(*s.ammoBag[i])
-
-			if s.debug {
-				fmt.Printf("%d	send to %s , seq:%d \n", now.UnixNano(), s.aim.String(), s.ammoBag[i].Id)
-			}
-			_, err := s.conn.WriteToUDP(b, s.aim)
-			if err != nil {
-				select {
-				case <-s.errorSign:
-				default:
-					s.errorContainer.Store(errors.New(err.Error()))
-					s.chanCloser.closeChan(s.errorSign)
-				}
-			}
-
-			s.addTotalTraffic(len(b))
-			s.addTotalPacket(1)
+			s.fire(s.ammoBag[i])
 		}
 	}
 
@@ -794,7 +785,7 @@ func (s *Sniper) expandWin() {
 }
 
 func (s *Sniper) Write(b []byte) (n int, err error) {
-	if s.isClose {
+	if atomic.LoadInt32(&s.isClose) == closed {
 		return 0, CLOSEERROR
 	}
 
@@ -964,7 +955,7 @@ func (s *Sniper) Close() error {
 	var try int
 
 loop:
-	if s.isClose {
+	if atomic.LoadInt32(&s.isClose) == closed {
 		return errors.New("is closed")
 	}
 
@@ -1004,7 +995,7 @@ loop:
 		goto loop
 	}
 
-	s.isClose = true
+	atomic.StoreInt32(&s.isClose, closed)
 	return nil
 }
 
